@@ -1,0 +1,220 @@
+@import "tailwindcss";
+@import "@fontsource/silkscreen/400.css";
+@import "@fontsource/silkscreen/700.css";
+@import "@fontsource/pixelify-sans/400.css";
+@import "@fontsource/pixelify-sans/500.css";
+@import "@fontsource/pixelify-sans/600.css";
+@import "@fontsource/pixelify-sans/700.css";
+
+@layer base {
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100%;
+    height: 100dvh;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+    background-color: #14121d;
+    color: #faf7eb;
+    font-family: "Pixelify Sans", monospace;
+    -webkit-font-smoothing: none;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  canvas {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    touch-action: none;
+  }
+}
+
+.font-pixel-display {
+  font-family: "Silkscreen", monospace;
+  letter-spacing: 0.02em;
+}
+
+.font-pixel {
+  font-family: "Pixelify Sans", monospace;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Ornate 9-slice style pixel-art panel frame (no blur, pure crisp stepped borders) */
+.pixel-frame {
+  background-color: #1f2233;
+  border: 3px solid #14121d;
+  box-shadow:
+    inset 0 3px 0 0 #45506b,
+    inset 3px 0 0 0 #363e57,
+    inset 0 -3px 0 0 #14121d,
+    inset -3px 0 0 0 #14121d,
+    0 4px 0 0 rgba(20, 18, 29, 0.85);
+}
+
+.pixel-frame-gold {
+  background-color: #1f2233;
+  border: 3px solid #14121d;
+  box-shadow:
+    inset 0 3px 0 0 #e6b84c,
+    inset 3px 0 0 0 #9e5e3b,
+    inset 0 -3px 0 0 #6b3b2a,
+    inset -3px 0 0 0 #6b3b2a,
+    0 5px 0 0 rgba(20, 18, 29, 0.92);
+}
+
+.pixel-inset {
+  background-color: #14121d;
+  border: 2px solid #2e344b;
+  box-shadow:
+    inset 0 2px 0 0 #0c0a12,
+    inset 2px 0 0 0 #0c0a12;
+}
+
+.pixel-btn {
+  background-color: #2e344b;
+  color: #faf7eb;
+  border: 2px solid #14121d;
+  box-shadow:
+    inset 0 2px 0 0 #65708a,
+    inset 2px 0 0 0 #45506b,
+    inset 0 -2px 0 0 #1f2233,
+    inset -2px 0 0 0 #1f2233,
+    0 2px 0 0 #14121d;
+  transition: transform 60ms steps(2), background-color 80ms linear;
+  cursor: pointer;
+}
+
+.pixel-btn:hover:not(:disabled) {
+  background-color: #3b4666;
+}
+
+.pixel-btn:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 2px 0 0 #1f2233,
+    0 0 0 0 #14121d;
+}
+
+.pixel-btn:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.pixel-btn-gold {
+  background-color: #e6b84c;
+  color: #14121d;
+  border: 2px solid #14121d;
+  box-shadow:
+    inset 0 2px 0 0 #ffe478,
+    inset 2px 0 0 0 #ffe478,
+    inset 0 -2px 0 0 #9e5e3b,
+    inset -2px 0 0 0 #9e5e3b,
+    0 3px 0 0 #14121d;
+  transition: transform 60ms steps(2), background-color 80ms linear;
+  cursor: pointer;
+}
+
+.pixel-btn-gold:hover:not(:disabled) {
+  background-color: #ffe478;
+}
+
+.pixel-btn-gold:active:not(:disabled) {
+  transform: translateY(2px);
+}
+
+.pixel-btn-green {
+  background-color: #2f6e49;
+  color: #faf7eb;
+  border: 2px solid #14121d;
+  box-shadow:
+    inset 0 2px 0 0 #8ce063,
+    inset 0 -2px 0 0 #1d4034,
+    0 2px 0 0 #14121d;
+  cursor: pointer;
+}
+
+.pixel-btn-green:hover:not(:disabled) {
+  background-color: #4da858;
+}
+
+.pixel-btn-red {
+  background-color: #a82c3a;
+  color: #faf7eb;
+  border: 2px solid #14121d;
+  box-shadow:
+    inset 0 2px 0 0 #f59876,
+    inset 0 -2px 0 0 #5c1d2a,
+    0 2px 0 0 #14121d;
+  cursor: pointer;
+}
+
+.pixel-btn-red:hover:not(:disabled) {
+  background-color: #e0534f;
+}
+
+/* Classic isometric tycoon round category button with pixel bezel */
+.pixel-round-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background-color: #2e344b;
+  border: 3px solid #14121d;
+  box-shadow:
+    inset 0 3px 0 0 #65708a,
+    inset 0 -3px 0 0 #14121d,
+    0 3px 0 0 rgba(20, 18, 29, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 70ms steps(2), background-color 80ms linear;
+}
+
+@media (min-width: 640px) {
+  .pixel-round-btn {
+    width: 52px;
+    height: 52px;
+  }
+}
+
+.pixel-round-btn:hover {
+  background-color: #3b4666;
+  transform: translateY(-2px);
+}
+
+.pixel-round-btn.active {
+  background-color: #e6b84c;
+  color: #14121d;
+  box-shadow:
+    inset 0 3px 0 0 #ffe478,
+    inset 0 -3px 0 0 #9e5e3b,
+    0 3px 0 0 #14121d;
+}
+
+/* Custom crisp pixel scrollbar for dense drawers */
+.pixel-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.pixel-scroll::-webkit-scrollbar-track {
+  background: #14121d;
+}
+
+.pixel-scroll::-webkit-scrollbar-thumb {
+  background: #45506b;
+  border: 1px solid #14121d;
+}
+
+.pixel-scroll::-webkit-scrollbar-thumb:hover {
+  background: #8c96ab;
+}

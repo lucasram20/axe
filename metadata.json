@@ -1,0 +1,6 @@
+{
+  "name": "Project-Labs",
+  "description": "A 3D isometric pixel-art AI Lab Tycoon idle and management game built in React and Three.js.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

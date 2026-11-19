@@ -1,0 +1,335 @@
+/**
+ * Data-driven catalog of floors, rooms, workstations, compute hardware,
+ * power/cooling infrastructure, and lab decor.
+ */
+
+export type ItemCategory = 'floors' | 'workspace' | 'compute' | 'infra' | 'decor';
+
+export type FloorType = 'grass' | 'garage' | 'lab' | 'server' | 'lounge';
+
+export interface CatalogItem {
+  id: string;
+  name: string;
+  category: ItemCategory;
+  cost: number;
+  upkeepPerDay: number;
+  footprint: [number, number]; // [width, depth] in tiles before rotation
+  floorType?: FloorType; // If present, paints floor tiles rather than placing an obstacle
+  isFloorTile?: boolean;
+  compute?: number; // TFLOPS-equivalent abstract compute units
+  powerDraw?: number; // kW consumed
+  powerGen?: number; // kW supplied
+  coolingGen?: number; // Cooling units supplied
+  heatGen?: number; // Heat units generated
+  deskSlots?: number; // Staff workstations provided
+  researchBonus?: number; // % bonus to research/training quality
+  moodBonus?: number; // Passive mood boost for nearby/all staff
+  isCoffee?: boolean; // Staff can visit to refill energy/mood
+  isServerProp?: boolean; // Staff (Infra/ML) occasionally inspect
+  isWhiteboard?: boolean; // Researchers occasionally brainstorm here
+  unlockEra?: number; // 0 = 2010, 1 = 2014, 2 = 2017, 3 = 2021, 4 = 2025
+  unlockTech?: string;
+  accentColor: string;
+  description: string;
+  shortStat: string;
+  iconKey: string;
+}
+
+export const CATALOG_ITEMS: CatalogItem[] = [
+  // === FLOORS / ROOMS ===
+  {
+    id: 'floor_garage',
+    name: 'Concrete Floor',
+    category: 'floors',
+    cost: 120,
+    upkeepPerDay: 0,
+    footprint: [1, 1],
+    isFloorTile: true,
+    floorType: 'garage',
+    accentColor: '#8c96ab',
+    description: 'Tough poured concrete slab for startups and workshops.',
+    shortStat: 'Walkable tile',
+    iconKey: 'floor_garage',
+  },
+  {
+    id: 'floor_lab',
+    name: 'Research Lab Tile',
+    category: 'floors',
+    cost: 320,
+    upkeepPerDay: 1,
+    footprint: [1, 1],
+    isFloorTile: true,
+    floorType: 'lab',
+    researchBonus: 0.5,
+    accentColor: '#4ea8de',
+    description: 'Clean anti-glare lab flooring. Boosts research efficiency slightly.',
+    shortStat: '+0.5% Research',
+    iconKey: 'floor_lab',
+  },
+  {
+    id: 'floor_server',
+    name: 'Raised Server Floor',
+    category: 'floors',
+    cost: 480,
+    upkeepPerDay: 2,
+    footprint: [1, 1],
+    isFloorTile: true,
+    floorType: 'server',
+    coolingGen: 1.5,
+    accentColor: '#2e6e70',
+    description: 'Perforated airflow floor tile for dense GPU clusters.',
+    shortStat: '+1.5 Cooling',
+    iconKey: 'floor_server',
+  },
+  {
+    id: 'floor_lounge',
+    name: 'Lounge Carpet',
+    category: 'floors',
+    cost: 260,
+    upkeepPerDay: 1,
+    footprint: [1, 1],
+    isFloorTile: true,
+    floorType: 'lounge',
+    moodBonus: 0.8,
+    accentColor: '#cf8d59',
+    description: 'Warm acoustic carpet that keeps researchers relaxed.',
+    shortStat: '+0.8 Mood',
+    iconKey: 'floor_lounge',
+  },
+
+  // === WORKSPACE ===
+  {
+    id: 'desk_basic',
+    name: 'Startup Desk',
+    category: 'workspace',
+    cost: 1_200,
+    upkeepPerDay: 6,
+    footprint: [1, 1],
+    deskSlots: 1,
+    powerDraw: 1,
+    accentColor: '#cf8d59',
+    description: 'A sturdy wood desk with a single monitor and swivel chair.',
+    shortStat: '+1 Staff · 1kW',
+    iconKey: 'desk_basic',
+  },
+  {
+    id: 'desk_pro',
+    name: 'Dual-Screen Station',
+    category: 'workspace',
+    cost: 3_600,
+    upkeepPerDay: 14,
+    footprint: [2, 1],
+    deskSlots: 2,
+    powerDraw: 2,
+    researchBonus: 4,
+    moodBonus: 2,
+    unlockEra: 1,
+    accentColor: '#4ea8de',
+    description: 'Ergonomic twin-monitor engineering bay for two specialists.',
+    shortStat: '+2 Staff · +4% Res',
+    iconKey: 'desk_pro',
+  },
+  {
+    id: 'whiteboard',
+    name: 'Research Whiteboard',
+    category: 'workspace',
+    cost: 1_500,
+    upkeepPerDay: 2,
+    footprint: [1, 1],
+    researchBonus: 5,
+    isWhiteboard: true,
+    accentColor: '#faf7eb',
+    description: 'Covered in backprop equations and architecture diagrams.',
+    shortStat: '+5% Research',
+    iconKey: 'whiteboard',
+  },
+  {
+    id: 'coffee_machine',
+    name: 'Espresso Station',
+    category: 'workspace',
+    cost: 1_800,
+    upkeepPerDay: 12,
+    footprint: [1, 1],
+    powerDraw: 1,
+    moodBonus: 6,
+    isCoffee: true,
+    accentColor: '#e0534f',
+    description: 'Essential fuel. Staff visit to restore energy and morale.',
+    shortStat: 'Refills Energy',
+    iconKey: 'coffee_machine',
+  },
+
+  // === COMPUTE ===
+  {
+    id: 'gpu_rig_2010',
+    name: 'DIY GPU Rig',
+    category: 'compute',
+    cost: 3_200,
+    upkeepPerDay: 18,
+    footprint: [1, 1],
+    compute: 12,
+    powerDraw: 3,
+    heatGen: 4,
+    isServerProp: true,
+    accentColor: '#4da858',
+    description: 'Open-frame workstation packed with four consumer graphics cards.',
+    shortStat: '12 TF · 3kW · 4 Heat',
+    iconKey: 'gpu_rig_2010',
+  },
+  {
+    id: 'server_rack',
+    name: 'Blade Server Rack',
+    category: 'compute',
+    cost: 9_500,
+    upkeepPerDay: 45,
+    footprint: [1, 1],
+    compute: 40,
+    powerDraw: 8,
+    heatGen: 10,
+    isServerProp: true,
+    accentColor: '#3b73b5',
+    description: '42U rackmount compute blades with blinking phosphor telemetry LEDs.',
+    shortStat: '40 TF · 8kW · 10 Heat',
+    iconKey: 'server_rack',
+  },
+  {
+    id: 'tensor_pod',
+    name: 'Tensor Accelerator Pod',
+    category: 'compute',
+    cost: 32_000,
+    upkeepPerDay: 140,
+    footprint: [2, 1],
+    compute: 165,
+    powerDraw: 22,
+    heatGen: 28,
+    isServerProp: true,
+    unlockEra: 1,
+    accentColor: '#e6b84c',
+    description: 'Dedicated matrix-multiply interconnect pod built for deep nets.',
+    shortStat: '165 TF · 22kW',
+    iconKey: 'tensor_pod',
+  },
+  {
+    id: 'liquid_cluster',
+    name: 'Liquid-Cooled SuperPod',
+    category: 'compute',
+    cost: 125_000,
+    upkeepPerDay: 480,
+    footprint: [2, 2],
+    compute: 720,
+    powerDraw: 75,
+    heatGen: 85,
+    isServerProp: true,
+    unlockEra: 2,
+    accentColor: '#9966cc',
+    description: 'High-density frontier cluster with manifold piping and optical links.',
+    shortStat: '720 TF · 75kW',
+    iconKey: 'liquid_cluster',
+  },
+
+  // === INFRASTRUCTURE ===
+  {
+    id: 'ac_unit',
+    name: 'Precision AC Unit',
+    category: 'infra',
+    cost: 2_600,
+    upkeepPerDay: 15,
+    footprint: [1, 1],
+    powerDraw: 2,
+    coolingGen: 18,
+    accentColor: '#8de4ff',
+    description: 'Industrial chilled-air unit that vents GPU rack heat.',
+    shortStat: '+18 Cool · 2kW',
+    iconKey: 'ac_unit',
+  },
+  {
+    id: 'cooling_tower',
+    name: 'Chiller Cooling Tower',
+    category: 'infra',
+    cost: 16_000,
+    upkeepPerDay: 65,
+    footprint: [2, 2],
+    powerDraw: 8,
+    coolingGen: 120,
+    unlockEra: 1,
+    accentColor: '#4ea8de',
+    description: 'Evaporative chiller tower with visible steam plumes.',
+    shortStat: '+120 Cool · 8kW',
+    iconKey: 'cooling_tower',
+  },
+  {
+    id: 'power_gen',
+    name: 'Micro-Grid Generator',
+    category: 'infra',
+    cost: 4_200,
+    upkeepPerDay: 24,
+    footprint: [1, 1],
+    powerGen: 24,
+    heatGen: 3,
+    accentColor: '#e6b84c',
+    description: 'Dedicated backup power supply to feed hungry compute racks.',
+    shortStat: '+24kW Power',
+    iconKey: 'power_gen',
+  },
+  {
+    id: 'substation',
+    name: 'High-Voltage Transformer',
+    category: 'infra',
+    cost: 24_000,
+    upkeepPerDay: 90,
+    footprint: [2, 1],
+    powerGen: 140,
+    heatGen: 8,
+    unlockEra: 2,
+    accentColor: '#f59876',
+    description: 'Utility-scale step-down transformer for frontier clusters.',
+    shortStat: '+140kW Power',
+    iconKey: 'substation',
+  },
+
+  // === DECOR & WALLS ===
+  {
+    id: 'wall_glass',
+    name: 'Window Wall',
+    category: 'decor',
+    cost: 280,
+    upkeepPerDay: 0,
+    footprint: [1, 1],
+    moodBonus: 1,
+    accentColor: '#8de4ff',
+    description: 'Architectural partition with warm glowing evening glass.',
+    shortStat: 'Divider · +1 Mood',
+    iconKey: 'wall_glass',
+  },
+  {
+    id: 'potted_plant',
+    name: 'Ficus Plant',
+    category: 'decor',
+    cost: 450,
+    upkeepPerDay: 1,
+    footprint: [1, 1],
+    moodBonus: 3,
+    accentColor: '#4da858',
+    description: 'A lush indoor plant that brightens up any research bay.',
+    shortStat: '+3 Mood',
+    iconKey: 'potted_plant',
+  },
+  {
+    id: 'bookshelf_posters',
+    name: 'Archive & Poster Shelf',
+    category: 'decor',
+    cost: 900,
+    upkeepPerDay: 2,
+    footprint: [1, 1],
+    researchBonus: 2,
+    moodBonus: 2,
+    accentColor: '#9e5e3b',
+    description: 'Classic ML textbooks, hardware trophies, and conference posters.',
+    shortStat: '+2% Res · +2 Mood',
+    iconKey: 'bookshelf_posters',
+  },
+];
+
+export const CATALOG_BY_ID: Record<string, CatalogItem> = Object.fromEntries(
+  CATALOG_ITEMS.map((item) => [item.id, item]),
+);
