@@ -36,7 +36,7 @@ export function BuildDrawer() {
   return (
     <section
       aria-label="Build menu"
-      className="pointer-events-auto fixed bottom-[84px] sm:bottom-[104px] left-1/2 -translate-x-1/2 z-20 w-[min(940px,96vw)] max-h-[calc(100dvh-180px)] overflow-y-auto pixel-scroll pixel-frame p-2.5 sm:p-3"
+      className="pointer-events-auto fixed bottom-[84px] sm:bottom-[104px] [@media(max-height:500px)]:bottom-[68px] left-1/2 -translate-x-1/2 z-20 w-[min(940px,96vw)] max-h-[calc(100dvh-180px)] [@media(max-height:500px)]:max-h-[calc(100dvh-126px)] overflow-y-auto pixel-scroll pixel-frame p-2.5 sm:p-3 [@media(max-height:500px)]:p-2"
     >
       {/* Header row: category tabs + Rotate/Sell/Close tools */}
       <div className="flex flex-wrap items-center justify-between gap-2 pb-2 mb-2 border-b-2 border-[#2e344b]">

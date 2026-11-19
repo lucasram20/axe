@@ -91,7 +91,7 @@ export function Minimap() {
   return (
     <aside
       aria-label="Lab minimap"
-      className="pointer-events-auto fixed bottom-3 right-3 z-20 hidden md:block pixel-frame p-1.5"
+      className="pointer-events-auto fixed bottom-3 right-3 z-20 hidden md:block [@media(max-height:500px)]:hidden pixel-frame p-1.5"
     >
       <div className="flex items-center justify-between text-[10px] font-pixel-display text-[#b8c0cf] mb-1 px-0.5">
         <span>MAP</span>

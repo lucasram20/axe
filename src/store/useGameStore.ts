@@ -371,7 +371,7 @@ export const useGameStore = create<GameStore>()(
         s.movingItemUid = null;
         s.selectedItemUid = null;
         s.selectedStaffId = null;
-        if (typeof window !== 'undefined' && window.innerWidth < 768) {
+        if (typeof window !== 'undefined' && (window.innerWidth < 768 || window.innerHeight < 520)) {
           s.activeDrawer = null;
         }
       });
@@ -383,7 +383,7 @@ export const useGameStore = create<GameStore>()(
         s.buildTool = tool;
         if (tool !== 'place') s.buildItemId = null;
         if (tool !== 'move') s.movingItemUid = null;
-        if (tool === 'sell' && typeof window !== 'undefined' && window.innerWidth < 768) {
+        if (tool === 'sell' && typeof window !== 'undefined' && (window.innerWidth < 768 || window.innerHeight < 520)) {
           s.activeDrawer = null;
         }
       });

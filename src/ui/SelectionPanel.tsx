@@ -30,7 +30,7 @@ export function SelectionPanel() {
     return (
       <aside
         aria-label="Selected equipment"
-        className="pointer-events-auto fixed bottom-[86px] left-2 right-14 md:bottom-3 md:left-3 md:right-auto md:w-[260px] z-20 pixel-frame p-2.5 sm:p-3"
+        className="pointer-events-auto fixed bottom-[86px] left-2 right-14 md:bottom-3 md:left-3 md:right-auto md:w-[260px] [@media(max-height:500px)]:bottom-[62px] [@media(max-height:500px)]:left-2 [@media(max-height:500px)]:right-auto [@media(max-height:500px)]:w-[240px] [@media(max-height:500px)]:p-2 z-20 pixel-frame p-2.5 sm:p-3"
       >
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
@@ -83,7 +83,7 @@ export function SelectionPanel() {
     return (
       <aside
         aria-label="Selected staff member"
-        className="pointer-events-auto fixed bottom-[86px] left-2 right-14 md:bottom-3 md:left-3 md:right-auto md:w-[265px] z-20 pixel-frame p-2.5 sm:p-3"
+        className="pointer-events-auto fixed bottom-[86px] left-2 right-14 md:bottom-3 md:left-3 md:right-auto md:w-[265px] [@media(max-height:500px)]:bottom-[62px] [@media(max-height:500px)]:left-2 [@media(max-height:500px)]:right-auto [@media(max-height:500px)]:w-[245px] [@media(max-height:500px)]:p-2 z-20 pixel-frame p-2.5 sm:p-3"
       >
         <div className="flex items-start justify-between gap-2">
           <div>

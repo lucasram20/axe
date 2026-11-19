@@ -3,6 +3,7 @@
  */
 
 import { useGameStore } from '../store/useGameStore';
+import { PWAInstallButton } from './PWAInstallButton';
 
 export function SettingsDrawer() {
   const settings = useGameStore((s) => s.game.settings);
@@ -15,7 +16,7 @@ export function SettingsDrawer() {
   return (
     <section
       aria-label="Settings and quality"
-      className="pointer-events-auto fixed bottom-[84px] sm:bottom-[104px] left-1/2 -translate-x-1/2 z-20 w-[min(680px,96vw)] max-h-[calc(100dvh-180px)] overflow-y-auto pixel-scroll pixel-frame p-2.5 sm:p-3"
+      className="pointer-events-auto fixed bottom-[84px] sm:bottom-[104px] [@media(max-height:500px)]:bottom-[68px] left-1/2 -translate-x-1/2 z-20 w-[min(680px,96vw)] max-h-[calc(100dvh-180px)] [@media(max-height:500px)]:max-h-[calc(100dvh-126px)] overflow-y-auto pixel-scroll pixel-frame p-2.5 sm:p-3 [@media(max-height:500px)]:p-2"
     >
       <div className="flex items-center justify-between pb-2 mb-3 border-b-2 border-[#2e344b]">
         <h2 className="font-pixel-display text-sm text-[#ffe478]">
@@ -121,7 +122,7 @@ export function SettingsDrawer() {
       </div>
 
       <div className="mt-3 pt-2 border-t-2 border-[#2e344b] flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={saveNow}
@@ -129,6 +130,7 @@ export function SettingsDrawer() {
           >
             Save Now
           </button>
+          <PWAInstallButton testId="settings-pwa-install" />
           <button
             type="button"
             onClick={toggleDebug}

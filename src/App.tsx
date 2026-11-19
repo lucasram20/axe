@@ -16,6 +16,7 @@ import { MobileControls } from './ui/MobileControls';
 import { Modals } from './ui/Modals';
 import { ModelsDrawer } from './ui/ModelsDrawer';
 import { NotificationFeed } from './ui/NotificationFeed';
+import { OfflineIndicator } from './ui/PWAInstallButton';
 import { ResearchDrawer } from './ui/ResearchDrawer';
 import { RivalsDrawer } from './ui/RivalsDrawer';
 import { SelectionPanel } from './ui/SelectionPanel';
@@ -49,7 +50,7 @@ export default function App() {
 
           {/* Build / Move / Sell mode indicator bar with touch Rotate & Cancel actions */}
           {buildTool !== 'select' && (
-            <div className="pointer-events-auto fixed top-[98px] sm:top-[64px] left-1/2 -translate-x-1/2 z-20 pixel-frame px-2.5 sm:px-3 py-1 flex flex-wrap items-center justify-center gap-1.5 sm:gap-2.5 text-xs max-w-[96vw]">
+            <div className="pointer-events-auto fixed top-[98px] sm:top-[64px] [@media(max-height:500px)]:top-[58px] left-1/2 -translate-x-1/2 z-20 pixel-frame px-2.5 sm:px-3 py-1 flex flex-wrap items-center justify-center gap-1.5 sm:gap-2.5 text-xs max-w-[96vw]">
               <span className="font-pixel-display text-[11px] sm:text-xs text-[#ffe478] whitespace-nowrap">
                 {buildTool === 'place'
                   ? 'BUILD · Tap floor tile'
@@ -104,6 +105,7 @@ export default function App() {
           <Modals />
         </div>
       )}
+      <OfflineIndicator />
     </main>
   );
 }

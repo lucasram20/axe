@@ -50,9 +50,23 @@ export function TopBar() {
   const monthLabel = MONTHS[(game.month - 1) % 12];
   const isNight = game.timeOfDay < 0.22 || game.timeOfDay > 0.78;
 
+  const toggleFullscreen = () => {
+    try {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen?.().catch(() => {});
+      } else {
+        document.exitFullscreen?.().catch(() => {});
+      }
+    } catch {
+      // Ignore if browser blocks Fullscreen API
+    }
+  };
+  const canFullscreen =
+    typeof document !== 'undefined' && typeof document.documentElement?.requestFullscreen === 'function';
+
   return (
     <header
-      className="pointer-events-auto fixed top-1.5 sm:top-2 left-1.5 sm:left-2 right-1.5 sm:right-2 z-20 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-1.5 sm:gap-2 px-2 sm:px-3 py-1 sm:py-1.5 pixel-frame-gold"
+      className="pointer-events-auto fixed top-1.5 sm:top-2 [@media(max-height:500px)]:top-1 left-1.5 sm:left-2 right-1.5 sm:right-2 z-20 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-between gap-1.5 sm:gap-2 px-2 sm:px-3 py-1 sm:py-1.5 [@media(max-height:500px)]:py-1 pixel-frame-gold"
       aria-label="Lab status bar"
     >
       {/* Row 1 (Mobile) / Left (Desktop): Financial & Core Compute Resources */}
@@ -121,7 +135,7 @@ export function TopBar() {
           </div>
 
           {/* Reputation & Safety */}
-          <div className="hidden md:flex items-center gap-1.5" title="Lab Reputation & Safety Index">
+          <div className="hidden xl:flex items-center gap-1.5" title="Lab Reputation & Safety Index">
             <PixelIcon name="rep" size={18} />
             <div className="leading-tight">
               <div className="text-[10px] text-[#8c96ab] uppercase tracking-wider">Rep · Safety</div>
@@ -148,21 +162,21 @@ export function TopBar() {
       </div>
 
       {/* Row 2 (Mobile) / Right (Desktop): Date/Era + Speed Controls + Utility Buttons */}
-      <div className="flex items-center justify-between sm:justify-end gap-1.5 sm:gap-2.5 sm:ml-auto border-t border-[#2e344b] sm:border-t-0 pt-1 sm:pt-0">
+      <div className="flex items-center justify-between sm:justify-end gap-1.5 sm:gap-2 sm:ml-auto border-t border-[#2e344b] sm:border-t-0 pt-1 sm:pt-0">
         <div
           onClick={handleDateTap}
           className="text-left sm:text-right leading-tight min-w-0"
         >
           <div className="font-pixel-display text-[11px] sm:text-xs text-[#faf7eb] tabular-nums truncate" data-testid="hud-date">
             {monthLabel} {game.dayOfMonth}, {game.year}
-            <span className="hidden sm:inline"> · {isNight ? 'Night' : 'Day'}</span>
+            <span className="hidden lg:inline"> · {isNight ? 'Night' : 'Day'}</span>
           </div>
           <div className="text-[10px] sm:text-[11px] truncate" style={{ color: era.accentColor }}>
             Era {era.index + 1}: {era.name}
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
           {/* Speed Controls */}
           <div className="flex items-center gap-0.5 sm:gap-1 pixel-inset p-0.5" role="group" aria-label="Simulation speed">
             {([0, 1, 2, 4] as const).map((spd) => {
@@ -188,6 +202,24 @@ export function TopBar() {
             })}
           </div>
 
+          {/* 1-tap Fullscreen button on mobile/tablet */}
+          {canFullscreen && (
+            <button
+              type="button"
+              tabIndex={-1}
+              onClick={(e) => {
+                e.currentTarget.blur();
+                toggleFullscreen();
+              }}
+              aria-label="Toggle fullscreen"
+              title="Toggle Fullscreen"
+              data-testid="hud-fullscreen"
+              className="lg:hidden px-1.5 py-1 text-[11px] font-pixel-display pixel-btn whitespace-nowrap"
+            >
+              FS
+            </button>
+          )}
+
           {/* Audio Mute */}
           <button
             type="button"
@@ -200,11 +232,11 @@ export function TopBar() {
             title="Toggle Sound (M)"
             className="px-1.5 sm:px-2 py-1 text-[11px] sm:text-xs font-pixel-display pixel-btn whitespace-nowrap"
           >
-            <span className="sm:hidden">{game.settings.muted ? 'MUTE' : 'SFX'}</span>
-            <span className="hidden sm:inline">{game.settings.muted ? 'SFX:OFF' : 'SFX:ON'}</span>
+            <span className="lg:hidden">{game.settings.muted ? 'MUTE' : 'SFX'}</span>
+            <span className="hidden lg:inline">{game.settings.muted ? 'SFX:OFF' : 'SFX:ON'}</span>
           </button>
 
-          {/* Desktop Pause Menu button */}
+          {/* Desktop / Landscape Pause Menu button */}
           <button
             type="button"
             tabIndex={-1}
@@ -214,7 +246,7 @@ export function TopBar() {
             }}
             aria-label="Open pause menu"
             title="Pause Menu (Esc)"
-            className="hidden sm:inline-block px-2.5 py-1 text-xs font-pixel-display pixel-btn whitespace-nowrap"
+            className="hidden sm:inline-block px-2 sm:px-2.5 py-1 text-[11px] sm:text-xs font-pixel-display pixel-btn whitespace-nowrap"
           >
             Menu
           </button>

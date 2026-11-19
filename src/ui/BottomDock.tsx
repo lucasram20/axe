@@ -26,7 +26,7 @@ export function BottomDock() {
   return (
     <nav
       aria-label="Lab management categories"
-      className="pointer-events-auto fixed bottom-2 sm:bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 pixel-frame max-w-[97vw] overflow-x-auto touch-pan-x"
+      className="pointer-events-auto fixed bottom-2 sm:bottom-3 [@media(max-height:500px)]:bottom-1 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 [@media(max-height:500px)]:py-1 [@media(max-height:500px)]:px-2 pixel-frame max-w-[97vw] overflow-x-auto touch-pan-x"
     >
       {DOCK_ITEMS.map((item) => {
         const isActive = activeDrawer === item.id;
@@ -56,7 +56,7 @@ export function BottomDock() {
               )}
             </button>
             <span
-              className={`text-[10px] sm:text-[11px] font-pixel-display leading-none whitespace-nowrap ${
+              className={`text-[10px] sm:text-[11px] [@media(max-height:500px)]:text-[9px] font-pixel-display leading-none whitespace-nowrap ${
                 isActive ? 'text-[#ffe478]' : 'text-[#b8c0cf]'
               }`}
             >

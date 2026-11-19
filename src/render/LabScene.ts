@@ -771,11 +771,11 @@ export class LabSceneController {
     this.currentZoom += (ZOOM_STEPS[this.zoomIndex] - this.currentZoom) * damp;
 
     // Update camera frustum padded by +2 texels for sub-pixel snapping
-    // On narrow portrait mobile viewports, slightly widen frustum so the lab fits cleanly
+    // Adapt framing on narrow portrait phones AND short mobile landscape viewports
     const w = Math.max(320, this.container.clientWidth || window.innerWidth);
     const h = Math.max(200, this.container.clientHeight || window.innerHeight);
     const aspect = w / h;
-    const baseFrustumH = aspect < 0.85 ? 16.0 : w < 768 ? 14.2 : 12.5;
+    const baseFrustumH = aspect < 0.85 ? 16.0 : h < 460 ? 14.5 : w < 768 ? 14.2 : 12.5;
     const padScaleX = this.pipeline.paddedWidth / this.pipeline.rtWidth;
     const padScaleY = this.pipeline.paddedHeight / this.pipeline.rtHeight;
 
