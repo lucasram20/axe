@@ -159,6 +159,8 @@ export interface ResourceSnapshot {
   computeThrottle: number; // 0..1 multiplier from power/heat/events
   isUnderpowered: boolean;
   isOverheated: boolean;
+  unlimitedCompute?: boolean;
+  unlimitedPower?: boolean;
 }
 
 export type BuildingTier = 0 | 1 | 2 | 3;
@@ -168,7 +170,16 @@ export type LandParcelId =
   | 'north_research'
   | 'west_annex'
   | 'ne_superpod'
-  | 'nw_innovation';
+  | 'nw_innovation'
+  | 'south_plaza'
+  | 'se_datacenter'
+  | 'sw_campus'
+  | 'far_east_mega'
+  | 'far_east_north'
+  | 'far_east_south'
+  | 'far_west_labs'
+  | 'far_west_north'
+  | 'far_west_south';
 
 export interface GameState {
   version: number;
@@ -195,9 +206,10 @@ export interface GameState {
   bonusCompute: number; // Debug or special grant compute
   extraGridPowerContracts: number; // Purchased via Auto-Buy Power
 
-  // Spatial world, HQ building tier & owned expansion land parcels
+  // Spatial world, HQ building tier, owned land parcels & per-building story height (1..6F)
   buildingTier: BuildingTier;
   ownedLandIds: LandParcelId[];
+  buildingStories: Record<string, number>;
   gridWidth: number;
   gridHeight: number;
   floors: FloorType[]; // length = gridWidth * gridHeight
@@ -233,6 +245,9 @@ export interface GameState {
   // Founder Vault live overrides stored cleanly in sim state
   cheatPerfectModels?: boolean;
   cheatFreeBuild?: boolean;
+  cheatUnlimitedCompute?: boolean;
+  cheatUnlimitedPower?: boolean;
+  cheatUnlimitedModels?: boolean;
 
   // Pending modals emitted by sim
   lastCompletedModelId: string | null;

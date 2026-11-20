@@ -10,18 +10,23 @@ import { useState } from 'react';
 import { CATALOG_ITEMS, type CatalogItem, type ItemCategory } from '../data/items';
 import {
   BUILDING_TIERS,
+  canAddBuildingStory,
   canBuyLandParcel,
   canUpgradeBuilding,
+  getBuildingStories,
+  getMaxCampusStories,
   LAND_PARCELS,
+  MAX_BUILDING_STORIES,
 } from '../sim/facility';
 import { isItemUnlocked } from '../sim/grid';
 import { useGameStore } from '../store/useGameStore';
 import { PixelIcon } from './PixelIcons';
 
 type BuildTab = 'land' | ItemCategory;
+type DistrictFilter = 'All' | 'North' | 'South' | 'East' | 'West';
 
 const CATEGORIES: Array<{ id: BuildTab; label: string }> = [
-  { id: 'land', label: 'Land & HQ' },
+  { id: 'land', label: 'Land & Floors' },
   { id: 'compute', label: 'Compute' },
   { id: 'workspace', label: 'Workspace' },
   { id: 'infra', label: 'Power & Cool' },
@@ -29,8 +34,11 @@ const CATEGORIES: Array<{ id: BuildTab; label: string }> = [
   { id: 'decor', label: 'Decor' },
 ];
 
+const DISTRICTS: readonly DistrictFilter[] = ['All', 'North', 'South', 'East', 'West'];
+
 export function BuildDrawer() {
   const [category, setCategory] = useState<BuildTab>('compute');
+  const [district, setDistrict] = useState<DistrictFilter>('All');
   const [hovered, setHovered] = useState<CatalogItem | null>(null);
 
   const game = useGameStore((s) => s.game);
@@ -43,6 +51,7 @@ export function BuildDrawer() {
   const setActiveDrawer = useGameStore((s) => s.setActiveDrawer);
   const upgradeBuilding = useGameStore((s) => s.upgradeBuilding);
   const buyLand = useGameStore((s) => s.buyLand);
+  const addStory = useGameStore((s) => s.addStory);
   const autoFurnishNow = useGameStore((s) => s.autoFurnishNow);
   const toggleAutomation = useGameStore((s) => s.toggleAutomation);
 
@@ -51,6 +60,13 @@ export function BuildDrawer() {
   const upgradeInfo = canUpgradeBuilding(game);
   const ownedLand = game.ownedLandIds ?? [];
   const totalBuildings = 1 + ownedLand.length;
+  const maxBuildings = 1 + LAND_PARCELS.length;
+  const maxStories = getMaxCampusStories(game);
+  const mainHqStories = getBuildingStories(game, 'main_hq');
+  const mainHqStoryCheck = canAddBuildingStory(game, 'main_hq');
+
+  const filteredParcels =
+    district === 'All' ? LAND_PARCELS : LAND_PARCELS.filter((p) => p.district === district);
 
   return (
     <section
@@ -62,7 +78,7 @@ export function BuildDrawer() {
         <div className="min-w-0 leading-tight">
           <div className="flex items-center gap-1.5 flex-wrap [@media(max-height:500px)]:flex-nowrap">
             <span className="font-pixel-display text-[11px] sm:text-xs [@media(max-height:500px)]:text-[10px] text-[#ffe478] whitespace-nowrap truncate">
-              HQ T{(game.buildingTier ?? 0) + 1}: {currentTier.name} · {totalBuildings}/6 Bldgs
+              HQ T{(game.buildingTier ?? 0) + 1}: {currentTier.name} · {totalBuildings}/{maxBuildings} Bldgs · Max {maxStories}F
             </span>
             <span className="text-[10px] text-[#8de4ff] font-pixel-display [@media(max-height:500px)]:hidden">
               ({currentTier.tagline})
@@ -134,7 +150,7 @@ export function BuildDrawer() {
                 category === cat.id ? 'pixel-btn-gold' : 'pixel-btn'
               }`}
             >
-              {cat.id === 'land' ? `Land (${totalBuildings}/6)` : cat.label}
+              {cat.id === 'land' ? `Land & Floors (${totalBuildings}/${maxBuildings})` : cat.label}
             </button>
           ))}
         </div>
@@ -168,61 +184,142 @@ export function BuildDrawer() {
         </div>
       </div>
 
-      {/* TAB A: BUY CAMPUS LAND PARCELS & NEW BUILDINGS */}
+      {/* TAB A: BUY ALL 14 LAND PARCELS + ADD VERTICAL FLOORS (1F–6F) ON EVERY BUILDING */}
       {category === 'land' ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-1.5 sm:gap-2 max-h-[205px] [@media(max-height:500px)]:max-h-[158px] overflow-y-auto pixel-scroll pr-1">
-          {LAND_PARCELS.map((parcel) => {
-            const owned = ownedLand.includes(parcel.id);
-            const check = canBuyLandParcel(game, parcel.id);
-            const cost = game.cheatFreeBuild ? 0 : parcel.cost;
+        <div className="space-y-1.5">
+          {/* District Filter Bar */}
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-1 flex-wrap" role="group" aria-label="Campus districts">
+              {DISTRICTS.map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setDistrict(d)}
+                  data-testid={`district-filter-${d.toLowerCase()}`}
+                  className={`px-2 py-0.5 text-[10px] font-pixel-display ${
+                    district === d ? 'pixel-btn-gold' : 'pixel-btn'
+                  }`}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
+            <span className="text-[10px] text-[#8de4ff] font-pixel-display">
+              Extra Floors (2F–{MAX_BUILDING_STORIES}F) multiply workspaces, compute &amp; cooling!
+            </span>
+          </div>
 
-            return (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-1.5 sm:gap-2 max-h-[195px] [@media(max-height:500px)]:max-h-[138px] overflow-y-auto pixel-scroll pr-1">
+            {/* Main HQ Multi-Story Card (always shown under All) */}
+            {district === 'All' && (
               <div
-                key={parcel.id}
-                data-testid={`land-card-${parcel.id}`}
-                className={`pixel-inset p-2 flex flex-col justify-between gap-1.5 ${
-                  owned ? 'border-[#54a846]' : ''
-                }`}
+                data-testid="land-card-main_hq"
+                className="pixel-inset p-2 flex flex-col justify-between gap-1.5 border-[#e6b84c]"
               >
                 <div>
                   <div className="flex items-center justify-between gap-1">
                     <span className="font-pixel-display text-[11px] text-[#ffe478] truncate">
-                      {parcel.name}
+                      Main HQ Tower
                     </span>
-                    <span className="text-[9px] font-pixel-display uppercase px-1.5 py-0.5 bg-[#1f2233] text-[#8de4ff] border border-[#2e344b] shrink-0">
-                      {parcel.role}
+                    <span className="text-[9px] font-pixel-display uppercase px-1.5 py-0.5 bg-[#2f6e49] text-[#faf7eb] border border-[#14121d] shrink-0">
+                      {mainHqStories}F / {MAX_BUILDING_STORIES}F
                     </span>
                   </div>
                   <p className="text-[11px] text-[#b8c0cf] leading-snug mt-0.5">
-                    {parcel.tagline}
+                    {currentTier.tagline} · Central Campus Flagship
                   </p>
-                  {parcel.autoGrantedAtTier !== undefined && !owned && (
-                    <div className="text-[10px] text-[#8ce063] mt-0.5">
-                      Also included free with HQ Tier {parcel.autoGrantedAtTier + 1}
-                    </div>
-                  )}
                 </div>
 
-                {owned ? (
+                {mainHqStories >= MAX_BUILDING_STORIES ? (
                   <div className="px-2 py-1 text-center font-pixel-display text-[10px] bg-[#2f6e49] text-[#faf7eb] border border-[#14121d]">
-                    BUILDING CONSTRUCTED
+                    MAX {MAX_BUILDING_STORIES}F SKYSCRAPER
                   </div>
                 ) : (
                   <button
                     type="button"
-                    disabled={!check.ok}
-                    onClick={() => buyLand(parcel.id)}
-                    data-testid={`buy-land-${parcel.id}`}
+                    disabled={!mainHqStoryCheck.ok}
+                    onClick={() => addStory('main_hq')}
+                    data-testid="add-story-main_hq"
                     className={`w-full py-1 px-2 text-[11px] font-pixel-display ${
-                      check.ok ? 'pixel-btn-gold' : 'pixel-btn'
+                      mainHqStoryCheck.ok ? 'pixel-btn-green' : 'pixel-btn'
                     }`}
                   >
-                    Buy Land &amp; Build ({cost === 0 ? 'FREE' : `$${cost.toLocaleString()}`})
+                    Add Floor {mainHqStories + 1}F ({mainHqStoryCheck.cost === 0 ? 'FREE' : `$${mainHqStoryCheck.cost.toLocaleString()}`})
                   </button>
                 )}
               </div>
-            );
-          })}
+            )}
+
+            {/* All 14 Surrounding Land Parcels */}
+            {filteredParcels.map((parcel) => {
+              const owned = ownedLand.includes(parcel.id);
+              const check = canBuyLandParcel(game, parcel.id);
+              const cost = game.cheatFreeBuild ? 0 : parcel.cost;
+              const stories = getBuildingStories(game, parcel.id);
+              const storyCheck = canAddBuildingStory(game, parcel.id);
+
+              return (
+                <div
+                  key={parcel.id}
+                  data-testid={`land-card-${parcel.id}`}
+                  className={`pixel-inset p-2 flex flex-col justify-between gap-1.5 ${
+                    owned ? 'border-[#54a846]' : ''
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="font-pixel-display text-[11px] text-[#ffe478] truncate">
+                        {parcel.name}
+                      </span>
+                      <span className="text-[9px] font-pixel-display uppercase px-1.5 py-0.5 bg-[#1f2233] text-[#8de4ff] border border-[#2e344b] shrink-0">
+                        {owned ? `${stories}F/${MAX_BUILDING_STORIES}F` : parcel.district}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[#b8c0cf] leading-snug mt-0.5">
+                      {parcel.tagline}
+                    </p>
+                    {parcel.autoGrantedAtTier !== undefined && !owned && (
+                      <div className="text-[10px] text-[#8ce063] mt-0.5">
+                        Also included free with HQ Tier {parcel.autoGrantedAtTier + 1}
+                      </div>
+                    )}
+                  </div>
+
+                  {owned ? (
+                    stories >= MAX_BUILDING_STORIES ? (
+                      <div className="px-2 py-1 text-center font-pixel-display text-[10px] bg-[#2f6e49] text-[#faf7eb] border border-[#14121d]">
+                        MAX {MAX_BUILDING_STORIES}F SKYSCRAPER
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={!storyCheck.ok}
+                        onClick={() => addStory(parcel.id)}
+                        data-testid={`add-story-${parcel.id}`}
+                        className={`w-full py-1 px-2 text-[11px] font-pixel-display ${
+                          storyCheck.ok ? 'pixel-btn-green' : 'pixel-btn'
+                        }`}
+                      >
+                        Add Floor {stories + 1}F ({storyCheck.cost === 0 ? 'FREE' : `$${storyCheck.cost.toLocaleString()}`})
+                      </button>
+                    )
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={!check.ok}
+                      onClick={() => buyLand(parcel.id)}
+                      data-testid={`buy-land-${parcel.id}`}
+                      className={`w-full py-1 px-2 text-[11px] font-pixel-display ${
+                        check.ok ? 'pixel-btn-gold' : 'pixel-btn'
+                      }`}
+                    >
+                      Buy Land &amp; Build ({cost === 0 ? 'FREE' : `$${cost.toLocaleString()}`})
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       ) : (
         /* TAB B: STANDARD BUILD ITEM CARDS */
@@ -281,14 +378,14 @@ export function BuildDrawer() {
       <div className="mt-1.5 pt-1 border-t-2 border-[#2e344b] flex [@media(max-height:500px)]:hidden items-center justify-between gap-2 text-[11px] text-[#b8c0cf]">
         <span className="truncate">
           {category === 'land'
-            ? 'Every HQ Tier constructs a new campus wing — or buy surrounding land parcels early anytime!'
+            ? `Expand across all ${maxBuildings} estate plots (North, South, East, West) and stack every tower up to ${MAX_BUILDING_STORIES}F!`
             : hovered
               ? `${hovered.name} (${hovered.footprint[0]}x${hovered.footprint[1]}): ${hovered.description}`
               : buildTool === 'place' && buildItemId
                 ? 'Tap a valid green floor tile to build · R to rotate · Right-click to cancel'
                 : buildTool === 'sell'
                   ? 'Tap any placed machine or desk to refund 72% of its cost'
-                  : 'Auto-Furnish handles desks & power automatically, or expand across 6 campus buildings'}
+                  : `Auto-Furnish handles desks & power automatically, or expand across ${maxBuildings} multi-story buildings`}
         </span>
         <span className="font-pixel-display text-[10px] text-[#8de4ff] shrink-0">
           {hovered ? hovered.shortStat : ''}

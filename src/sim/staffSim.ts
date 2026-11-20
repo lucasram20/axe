@@ -17,7 +17,7 @@ import {
   STAFF_TRAIT_BY_ID,
   type StaffRole,
 } from '../data/staff';
-import { autoEnsureDeskForHire } from './facility';
+import { autoEnsureDeskForHire, autoFurnishLab, getActiveCampusBuildings } from './facility';
 import { getWalkableIndoorTiles } from './grid';
 import {
   allocUid,
@@ -102,12 +102,92 @@ export function refreshCandidates(state: GameState): { ok: boolean; reason?: str
 }
 
 export function countDeskSlots(state: GameState): number {
+  const buildings = getActiveCampusBuildings(state);
   let slots = 0;
   for (const item of state.items) {
     const def = CATALOG_BY_ID[item.itemId];
-    if (def?.deskSlots) slots += def.deskSlots;
+    if (!def?.deskSlots) continue;
+    let stories = 1;
+    for (const b of buildings) {
+      if (item.gx >= b.minX && item.gx <= b.maxX && item.gz >= b.minZ && item.gz <= b.maxZ) {
+        stories = b.stories;
+        break;
+      }
+    }
+    slots += def.deskSlots * stories;
   }
   return slots;
+}
+
+/**
+ * Founder Vault One-Click Staffing:
+ * Auto-furnishes empty workspaces across all constructed buildings & floors,
+ * upgrades existing staff to Lv.10 100% Mood, and fills EVERY open workspace
+ * across the entire multi-building / multi-story campus with Lv.10 Geniuses!
+ */
+export function fillCampusWithGeniuses(state: GameState): { hiredCount: number; totalStaff: number; totalSlots: number } {
+  // Ensure every constructed building has desks installed first
+  autoFurnishLab(state, { free: true, silent: true });
+
+  // Upgrade all existing team members to Lv.10 100% Mood & Energy
+  for (const s of state.staff) {
+    s.skill = 10;
+    s.mood = 100;
+    s.energy = 100;
+  }
+
+  const totalSlots = countDeskSlots(state);
+  const targetStaff = Math.min(BALANCE.maxStaffCap, Math.max(state.staff.length, totalSlots));
+  const needed = Math.max(0, targetStaff - state.staff.length);
+
+  const roles: StaffRole[] = [
+    'researcher',
+    'ml_engineer',
+    'data_engineer',
+    'infra_devops',
+    'product',
+    'sales',
+  ];
+  const deskItems = state.items.filter((it) => Boolean(CATALOG_BY_ID[it.itemId]?.deskSlots));
+  const walkable = getWalkableIndoorTiles(state);
+
+  for (let i = 0; i < needed; i++) {
+    const member = generateCandidate(state, roles[i % roles.length]);
+    member.skill = 10;
+    member.mood = 100;
+    member.energy = 100;
+    member.salaryPerDay = 120;
+    member.traitId = i % 3 === 0 ? 'genius' : i % 3 === 1 ? 'speedrunner' : 'visionary';
+
+    if (deskItems.length > 0) {
+      const desk = deskItems[(state.staff.length + i) % deskItems.length];
+      member.assignedDeskUid = desk.uid;
+      member.x = desk.gx + 0.4 + ((i % 2) * 0.45);
+      member.z = desk.gz + 0.85;
+      member.targetX = member.x;
+      member.targetZ = member.z;
+      member.activity = 'working';
+      member.activityTimer = 6 + (i % 5);
+    } else if (walkable.length > 0) {
+      const [wx, wz] = walkable[(i * 5) % walkable.length];
+      member.x = wx + 0.5;
+      member.z = wz + 0.5;
+      member.targetX = member.x;
+      member.targetZ = member.z;
+    }
+    state.staff.push(member);
+  }
+
+  const bldgCount = 1 + (state.ownedLandIds?.length ?? 0);
+  pushNotification(
+    state,
+    needed > 0
+      ? `Filled all workspaces across ${bldgCount} building(s) with Lv.10 Geniuses (+${needed} hired · ${state.staff.length} total)!`
+      : `All ${state.staff.length} workspaces across ${bldgCount} building(s) are already staffed with Lv.10 Geniuses!`,
+    'good',
+  );
+
+  return { hiredCount: needed, totalStaff: state.staff.length, totalSlots };
 }
 
 export function hireCandidate(
@@ -192,11 +272,20 @@ function findDeskForStaff(state: GameState, staff: StaffMember): string | null {
     }
   }
 
+  const buildings = getActiveCampusBuildings(state);
+  const storiesAt = (gx: number, gz: number): number => {
+    for (const b of buildings) {
+      if (gx >= b.minX && gx <= b.maxX && gz >= b.minZ && gz <= b.maxZ) return b.stories;
+    }
+    return 1;
+  };
+
   for (const item of state.items) {
     const def = CATALOG_BY_ID[item.itemId];
     if (!def?.deskSlots) continue;
+    const capacity = def.deskSlots * storiesAt(item.gx, item.gz);
     const used = occupancy.get(item.uid) ?? 0;
-    if (used < def.deskSlots) {
+    if (used < capacity) {
       return item.uid;
     }
   }

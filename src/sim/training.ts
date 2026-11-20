@@ -62,6 +62,10 @@ export function acquireDataset(
   return { ok: true };
 }
 
+export function getMaxConcurrentTrainingJobs(state: GameState): number {
+  return state.cheatUnlimitedModels ? 12 : BALANCE.maxActiveTrainingJobs;
+}
+
 export function startTrainingJob(
   state: GameState,
   archId: string,
@@ -69,8 +73,9 @@ export function startTrainingJob(
   computeBudget: number,
   customName?: string,
 ): { ok: boolean; reason?: string; jobId?: string } {
-  if (state.trainingJobs.length >= BALANCE.maxActiveTrainingJobs) {
-    return { ok: false, reason: `Max ${BALANCE.maxActiveTrainingJobs} concurrent runs` };
+  const maxJobs = getMaxConcurrentTrainingJobs(state);
+  if (state.trainingJobs.length >= maxJobs) {
+    return { ok: false, reason: `Max ${maxJobs} concurrent runs` };
   }
 
   const arch = getUnlockedArchitectures(state).find((a) => a.id === archId);
@@ -82,13 +87,15 @@ export function startTrainingJob(
 
   const res = computeResources(state);
   const clampedBudget = Math.max(arch.computeReq, Math.round(computeBudget));
-  if (res.computeAvailable < arch.computeReq) {
+  if (!state.cheatUnlimitedCompute && res.computeAvailable < arch.computeReq) {
     return {
       ok: false,
       reason: `Need at least ${arch.computeReq} free TF (have ${res.computeAvailable})`,
     };
   }
-  const actualAlloc = Math.min(clampedBudget, res.computeAvailable);
+  const actualAlloc = state.cheatUnlimitedCompute
+    ? Math.min(Math.max(clampedBudget, arch.computeReq * 4), 999_999)
+    : Math.min(clampedBudget, res.computeAvailable);
 
   state.modelCounter += 1;
   const modelName =
@@ -179,7 +186,8 @@ function evaluateTrainedModel(
     state.safety * 0.75 + safetyStaffBonus + Math.min(12, dataStaffPower * 0.5) - riskPenalty + (r2 - 0.5) * 5,
   );
 
-  const benchmarks: BenchmarkScores = state.cheatPerfectModels
+  const forcePerfect = Boolean(state.cheatPerfectModels || state.cheatUnlimitedModels);
+  const benchmarks: BenchmarkScores = forcePerfect
     ? {
         overall: 100,
         reasoning: 100,
@@ -195,8 +203,8 @@ function evaluateTrainedModel(
         safety: safetyScore,
       };
 
-  // Slight risk check for risky datasets (bypassed when perfect model override is active)
-  if (!state.cheatPerfectModels && ds && ds.legalityRisk >= 15 && r2 < 0.25) {
+  // Slight risk check for risky datasets (bypassed when perfect/unlimited model override is active)
+  if (!forcePerfect && ds && ds.legalityRisk >= 15 && r2 < 0.25) {
     state.safety = Math.max(10, state.safety - 4);
     pushNotification(
       state,
@@ -286,11 +294,15 @@ export function stepTrainingJobs(
   for (let i = state.trainingJobs.length - 1; i >= 0; i--) {
     const job = state.trainingJobs[i];
     const arch = getUnlockedArchitectures(state).find((a) => a.id === job.archId);
-    const computeOverdrive = arch
-      ? 1 + Math.max(0, job.computeAllocated / Math.max(1, arch.computeReq) - 1) * 0.5
-      : 1;
+    const computeOverdrive = state.cheatUnlimitedCompute
+      ? 16
+      : arch
+        ? 1 + Math.max(0, job.computeAllocated / Math.max(1, arch.computeReq) - 1) * 0.5
+        : 1;
+    const unlimitedModelMult = state.cheatUnlimitedModels ? 8 : 1;
 
-    const effectiveDays = gameDaysDelta * speedMult * computeOverdrive * computeThrottle;
+    const effectiveDays =
+      gameDaysDelta * speedMult * computeOverdrive * computeThrottle * unlimitedModelMult;
     job.elapsedDays += effectiveDays;
     job.progress = Math.min(1, job.elapsedDays / Math.max(1, job.totalDaysRequired));
 

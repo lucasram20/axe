@@ -16,7 +16,7 @@ import { STAFF_ROLES } from '../data/staff';
 import type { StaffMember } from '../sim/types';
 import type { PixelTexturePack } from './textures';
 
-const MAX_STAFF_INSTANCES = 256;
+const MAX_STAFF_INSTANCES = 512;
 
 // Pre-allocated scratch math helpers (zero GC in per-frame loop)
 const _mat4 = new THREE.Matrix4();

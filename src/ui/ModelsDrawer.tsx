@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import { DATASET_BY_ID } from '../data/datasets';
-import { getUnlockedArchitectures } from '../sim/training';
+import { getMaxConcurrentTrainingJobs, getUnlockedArchitectures } from '../sim/training';
 import { useGameStore, useResourceSnapshot } from '../store/useGameStore';
 
 export function ModelsDrawer() {
@@ -27,15 +27,18 @@ export function ModelsDrawer() {
 
   const activeArch = archs.find((a) => a.id === selectedArchId) ?? archs[0];
   const minCompute = activeArch?.computeReq ?? 10;
-  const maxAlloc = Math.max(minCompute, res.computeAvailable);
-  const [computeAlloc, setComputeAlloc] = useState<number>(Math.max(minCompute, Math.min(maxAlloc, 40)));
-  const clampedAlloc = Math.min(maxAlloc, Math.max(minCompute, computeAlloc));
+  const maxJobs = getMaxConcurrentTrainingJobs(game);
+  const sliderMax = res.unlimitedCompute
+    ? Math.max(50_000, minCompute * 10)
+    : Math.max(minCompute, res.computeAvailable);
+  const [computeAlloc, setComputeAlloc] = useState<number>(Math.max(minCompute, Math.min(sliderMax, 40)));
+  const clampedAlloc = Math.min(sliderMax, Math.max(minCompute, computeAlloc));
 
   const autoQueueUnlocked = game.unlockedTechs.includes('tech_auto_queue');
   const canLaunch =
     Boolean(activeArch) &&
-    res.computeAvailable >= minCompute &&
-    game.trainingJobs.length < 2;
+    (res.unlimitedCompute || res.computeAvailable >= minCompute) &&
+    game.trainingJobs.length < maxJobs;
 
   return (
     <section
@@ -47,11 +50,12 @@ export function ModelsDrawer() {
           <button
             type="button"
             onClick={() => setSubTab('train')}
+            data-testid="models-tab-train"
             className={`px-3 py-1 text-xs font-pixel-display ${
               subTab === 'train' ? 'pixel-btn-gold' : 'pixel-btn'
             }`}
           >
-            Train ({game.trainingJobs.length}/2)
+            Train ({game.trainingJobs.length}/{maxJobs})
           </button>
           <button
             type="button"
@@ -141,11 +145,16 @@ export function ModelsDrawer() {
 
             <div className="grid grid-cols-2 gap-2 items-end">
               <label className="block text-xs text-[#b8c0cf]">
-                Compute Budget: <span className="text-[#8de4ff] tabular-nums">{clampedAlloc} / {res.computeAvailable} TF</span>
+                Compute Budget:{' '}
+                <span className="text-[#8de4ff] tabular-nums">
+                  {res.unlimitedCompute
+                    ? `${clampedAlloc.toLocaleString()} / ∞ TF`
+                    : `${clampedAlloc} / ${res.computeAvailable} TF`}
+                </span>
                 <input
                   type="range"
                   min={minCompute}
-                  max={Math.max(minCompute, res.computeAvailable)}
+                  max={sliderMax}
                   value={clampedAlloc}
                   onChange={(e) => setComputeAlloc(Number(e.target.value))}
                   className="mt-1 w-full accent-[#e6b84c]"
@@ -167,9 +176,11 @@ export function ModelsDrawer() {
 
             <div className="flex items-center justify-between pt-1">
               <span className="text-[11px] text-[#b8c0cf]">
-                {res.computeAvailable < minCompute
+                {!res.unlimitedCompute && res.computeAvailable < minCompute
                   ? `Need ${minCompute - res.computeAvailable} more free TF`
-                  : `Est. duration: ~${activeArch?.trainingDays ?? 12} game days`}
+                  : res.unlimitedCompute
+                    ? 'Unlimited Overdrive Compute active (∞ TF)'
+                    : `Est. duration: ~${activeArch?.trainingDays ?? 12} game days`}
               </span>
               <button
                 type="button"
@@ -183,6 +194,7 @@ export function ModelsDrawer() {
                   );
                   if (ok) setCustomName('');
                 }}
+                data-testid="start-training-btn"
                 className="pixel-btn-green px-4 py-1.5 text-xs font-pixel-display"
               >
                 Start Training

@@ -21,10 +21,12 @@ import {
   triggerRandomEventNow,
 } from '../sim/engine';
 import {
+  addBuildingStory,
   applyMaxHyperscaleHQ,
   autoFurnishLab,
   buyLandParcel,
   unlockAllCampusLand,
+  upgradeAllBuildingsToMaxStories,
   upgradeBuildingTier,
 } from '../sim/facility';
 import { movePlacedItem, placeItem, sellPlacedItem } from '../sim/grid';
@@ -38,6 +40,7 @@ import {
   type SaveSlotId,
 } from '../sim/save';
 import {
+  fillCampusWithGeniuses,
   fireStaff,
   generateCandidate,
   hireCandidate,
@@ -152,6 +155,7 @@ interface GameStore {
   toggleAutomation: (key: 'autoQueueTraining' | 'autoBuyPower' | 'autoHireStaff' | 'autoFurnish') => void;
   upgradeBuilding: () => boolean;
   buyLand: (parcelId: LandParcelId) => boolean;
+  addStory: (buildingId: string) => boolean;
   autoFurnishNow: () => void;
 
   // Settings & persistence
@@ -190,12 +194,17 @@ interface GameStore {
   cheatMaxStaffMood: () => void;
   cheatMaxAllStaffSkill: () => void;
   cheatSpawnGeniuses: (count: number) => void;
+  cheatFillCampusWithGeniuses: () => void;
   cheatJumpToFrontierEra: () => void;
   cheatJumpToEra: (eraIndex: number) => void;
   cheatMaxBuildingAndDataCenter: () => void;
   cheatUnlockAllLand: () => void;
+  cheatMaxAllStories: () => void;
   cheatMaxAllModels: () => void;
   cheatTogglePerfectModels: () => void;
+  cheatToggleUnlimitedCompute: () => void;
+  cheatToggleUnlimitedPower: () => void;
+  cheatToggleUnlimitedModels: () => void;
   cheatToggleFreeBuild: () => void;
   cheatToggleGodMood: () => void;
   cheatToggleHyperTraining: () => void;
@@ -689,6 +698,19 @@ export const useGameStore = create<GameStore>()(
       return ok;
     },
 
+    addStory: (buildingId) => {
+      let ok = false;
+      set((s) => {
+        const res = addBuildingStory(s.game, buildingId);
+        ok = res.ok;
+        if (!res.ok && res.reason) {
+          pushNotification(s.game, res.reason, 'warn');
+        }
+      });
+      audioManager.play(ok ? 'cash' : 'invalid');
+      return ok;
+    },
+
     autoFurnishNow: () => {
       let placed = 0;
       set((s) => {
@@ -986,6 +1008,13 @@ export const useGameStore = create<GameStore>()(
       });
     },
 
+    cheatFillCampusWithGeniuses: () => {
+      audioManager.play('hire');
+      set((s) => {
+        fillCampusWithGeniuses(s.game);
+      });
+    },
+
     cheatJumpToFrontierEra: () => {
       get().cheatJumpToEra(4);
     },
@@ -1022,6 +1051,13 @@ export const useGameStore = create<GameStore>()(
       });
     },
 
+    cheatMaxAllStories: () => {
+      audioManager.play('cash');
+      set((s) => {
+        upgradeAllBuildingsToMaxStories(s.game);
+      });
+    },
+
     cheatMaxAllModels: () => {
       audioManager.play('train_complete');
       set((s) => {
@@ -1029,7 +1065,7 @@ export const useGameStore = create<GameStore>()(
         if (count > 0) {
           pushNotification(s.game, `Boosted ${count} trained model(s) to 100/100 across all aspects!`, 'good');
         } else {
-          pushNotification(s.game, 'No trained models yet — enable Perfect 100/100 Models toggle for upcoming runs!', 'info');
+          pushNotification(s.game, 'No trained models yet — enable Unlimited Models for instant 100/100 runs!', 'info');
         }
       });
     },
@@ -1042,6 +1078,52 @@ export const useGameStore = create<GameStore>()(
           maxAllTrainedModels(s.game);
           pushNotification(s.game, 'Perfect 100/100 Model Quality enabled across all benchmark aspects!', 'good');
         }
+      });
+    },
+
+    cheatToggleUnlimitedCompute: () => {
+      audioManager.play('research');
+      set((s) => {
+        s.game.cheatUnlimitedCompute = !s.game.cheatUnlimitedCompute;
+        pushNotification(
+          s.game,
+          s.game.cheatUnlimitedCompute
+            ? 'UNLIMITED COMPUTE (∞ TF) ACTIVE! Zero compute caps or throttling!'
+            : 'Unlimited Compute disabled.',
+          s.game.cheatUnlimitedCompute ? 'good' : 'info',
+        );
+      });
+    },
+
+    cheatToggleUnlimitedPower: () => {
+      audioManager.play('research');
+      set((s) => {
+        s.game.cheatUnlimitedPower = !s.game.cheatUnlimitedPower;
+        pushNotification(
+          s.game,
+          s.game.cheatUnlimitedPower
+            ? 'UNLIMITED POWER & COOLING (∞) ACTIVE! Zero power bills or overheating!'
+            : 'Unlimited Power & Cooling disabled.',
+          s.game.cheatUnlimitedPower ? 'good' : 'info',
+        );
+      });
+    },
+
+    cheatToggleUnlimitedModels: () => {
+      audioManager.play('train_complete');
+      set((s) => {
+        s.game.cheatUnlimitedModels = !s.game.cheatUnlimitedModels;
+        if (s.game.cheatUnlimitedModels) {
+          s.game.cheatPerfectModels = true;
+          maxAllTrainedModels(s.game);
+        }
+        pushNotification(
+          s.game,
+          s.game.cheatUnlimitedModels
+            ? 'UNLIMITED MODELS ACTIVE! Up to 12 concurrent runs, 100/100 quality & ultra-speed!'
+            : 'Unlimited Models disabled.',
+          s.game.cheatUnlimitedModels ? 'good' : 'info',
+        );
       });
     },
 

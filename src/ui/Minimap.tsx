@@ -23,7 +23,7 @@ export function Minimap() {
   const cameraBounds = useGameStore((s) => s.cameraBounds);
   const jumpCameraTo = useGameStore((s) => s.jumpCameraTo);
 
-  const CELL_PX = game.gridWidth >= 24 ? 5 : 7;
+  const CELL_PX = game.gridWidth >= 36 ? 4 : game.gridWidth >= 24 ? 5 : 7;
   const wPx = game.gridWidth * CELL_PX;
   const hPx = game.gridHeight * CELL_PX;
 

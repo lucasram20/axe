@@ -29,7 +29,7 @@ import { InstancedStaffRenderer } from './staffRenderer';
 import { createPixelTextures, type PixelTexturePack } from './textures';
 
 const ISO_PITCH = Math.atan(1 / Math.sqrt(2)); // ~35.264 deg true isometric angle
-const ZOOM_STEPS = [0.42, 0.56, 0.72, 0.92, 1.15, 1.42];
+const ZOOM_STEPS = [0.2, 0.28, 0.38, 0.52, 0.72, 0.96, 1.28];
 
 // Pre-allocated scratch math helpers (zero GC in render loop)
 const _vec3A = new THREE.Vector3();
@@ -264,11 +264,11 @@ export class LabSceneController {
   private highlightClone: THREE.Object3D | null = null;
   private lastHighlightUid: string | null = null;
 
-  // Camera rig state (default centered cleanly on Main HQ garage)
+  // Camera rig state (default centered cleanly on Main HQ garage inside 40x40 estate)
   private camTargetX = 0;
-  private camTargetZ = 1.5;
-  private zoomIndex = 3; // 0.92x default (zooms all the way out to 0.42x for full 6-building campus!)
-  private currentZoom = ZOOM_STEPS[3];
+  private camTargetZ = 0;
+  private zoomIndex = 4; // 0.86x default (zooms all the way out to 0.26x for full 15-building 6F skyline!)
+  private currentZoom = ZOOM_STEPS[4];
   private rotQuarter = 0;
   private currentYaw = Math.PI / 4;
   private targetYaw = Math.PI / 4;
@@ -335,7 +335,7 @@ export class LabSceneController {
     this.staffRenderer = new InstancedStaffRenderer(this.textures);
     this.particles = new VoxelParticlePool();
 
-    // True Isometric Orthographic Camera
+    // True Isometric Orthographic Camera (deep near/far range so 6F skyscrapers never clip)
     const aspect = width / height;
     const frustumH = 12.5;
     this.camera = new THREE.OrthographicCamera(
@@ -344,7 +344,7 @@ export class LabSceneController {
       frustumH / 2,
       -frustumH / 2,
       0.5,
-      120,
+      200,
     );
     this.camera.zoom = this.currentZoom;
     this.camera.updateProjectionMatrix();
@@ -362,15 +362,15 @@ export class LabSceneController {
     this.scene.add(this.hemiLight);
 
     this.sunLight = new THREE.DirectionalLight('#fff2d6', 1.65);
-    this.sunLight.position.set(18, 28, 14);
+    this.sunLight.position.set(24, 36, 18);
     this.sunLight.castShadow = true;
     this.sunLight.shadow.mapSize.set(1024, 1024);
-    this.sunLight.shadow.camera.left = -26;
-    this.sunLight.shadow.camera.right = 26;
-    this.sunLight.shadow.camera.top = 26;
-    this.sunLight.shadow.camera.bottom = -26;
+    this.sunLight.shadow.camera.left = -36;
+    this.sunLight.shadow.camera.right = 36;
+    this.sunLight.shadow.camera.top = 36;
+    this.sunLight.shadow.camera.bottom = -36;
     this.sunLight.shadow.camera.near = 2;
-    this.sunLight.shadow.camera.far = 84;
+    this.sunLight.shadow.camera.far = 110;
     this.sunLight.shadow.bias = -0.0008;
     this.scene.add(this.sunLight);
 
@@ -437,10 +437,10 @@ export class LabSceneController {
   }
 
   private buildSurroundings(): void {
-    // Extended outdoor lawn slab so the 28x28 multi-building campus sits grounded in a lush tech park
-    const lawnGeo = new THREE.BoxGeometry(96, 0.6, 96);
+    // Extended outdoor lawn slab so the 40x40 15-building estate sits grounded in a lush tech park
+    const lawnGeo = new THREE.BoxGeometry(144, 0.6, 144);
     const lawnTex = this.textures.floors.grass.clone();
-    lawnTex.repeat.set(96, 96);
+    lawnTex.repeat.set(144, 144);
     lawnTex.needsUpdate = true;
     const lawnMat = new THREE.MeshToonMaterial({
       map: lawnTex,
@@ -453,20 +453,20 @@ export class LabSceneController {
 
     // Paved tech-park access road along the south edge
     const roadTex = this.textures.road.clone();
-    roadTex.repeat.set(48, 1);
+    roadTex.repeat.set(72, 1);
     roadTex.needsUpdate = true;
-    const roadGeo = new THREE.BoxGeometry(96, 0.06, 2.8);
+    const roadGeo = new THREE.BoxGeometry(144, 0.06, 3.0);
     const roadMat = new THREE.MeshToonMaterial({
       map: roadTex,
       gradientMap: this.textures.toonGradient,
     });
     const road = new THREE.Mesh(roadGeo, roadMat);
-    road.position.set(0, 0.0, this.gridOffsetZ + 2.4);
+    road.position.set(0, 0.0, this.gridOffsetZ + 2.5);
     road.receiveShadow = true;
     this.scene.add(road);
 
     // Sidewalk strip between campus plot and road
-    const curbGeo = new THREE.BoxGeometry(this.gridW + 6, 0.08, 1.0);
+    const curbGeo = new THREE.BoxGeometry(this.gridW + 8, 0.08, 1.0);
     const curbMat = new THREE.MeshToonMaterial({
       color: '#d8d2c7',
       gradientMap: this.textures.toonGradient,
@@ -476,8 +476,8 @@ export class LabSceneController {
     curb.receiveShadow = true;
     this.scene.add(curb);
 
-    // Paved main campus entrance driveway apron connecting the access road to Main HQ
-    const apronGeo = new THREE.BoxGeometry(3.8, 0.065, 2.4);
+    // Paved main campus entrance driveway apron connecting the access road to the central boulevard
+    const apronGeo = new THREE.BoxGeometry(4.2, 0.065, 2.5);
     const apronMat = new THREE.MeshToonMaterial({
       color: '#737988',
       gradientMap: this.textures.toonGradient,
@@ -492,7 +492,7 @@ export class LabSceneController {
     const armGeo = new THREE.BoxGeometry(0.11, 0.09, 0.48);
     const bulbGeo = new THREE.BoxGeometry(0.2, 0.12, 0.2);
     const poleMat = new THREE.MeshToonMaterial({ color: '#394052', gradientMap: this.textures.toonGradient });
-    for (const lx of [-12, -7.2, -2.6, 2.6, 7.2, 12]) {
+    for (const lx of [-18, -12.5, -7.2, -2.6, 2.6, 7.2, 12.5, 18]) {
       const pole = new THREE.Mesh(poleGeo, poleMat);
       pole.position.set(lx, 1.05, this.gridOffsetZ + 0.9);
       pole.castShadow = true;
@@ -514,8 +514,8 @@ export class LabSceneController {
       this.streetLampBulbs.push(bulb);
     }
 
-    // Cutaway architectural slab foundation border framing the 28x28 campus plot
-    const borderGeo = new THREE.BoxGeometry(this.gridW + 0.54, 0.24, this.gridH + 0.54);
+    // Cutaway architectural slab foundation border framing the 40x40 campus estate
+    const borderGeo = new THREE.BoxGeometry(this.gridW + 0.56, 0.24, this.gridH + 0.56);
     const borderMat = new THREE.MeshToonMaterial({
       color: '#434859',
       gradientMap: this.textures.toonGradient,
@@ -525,14 +525,14 @@ export class LabSceneController {
     border.receiveShadow = true;
     this.scene.add(border);
 
-    // Instanced voxel trees around the 28x28 campus perimeter (well outside +/-14 plot bounds)
+    // Instanced voxel trees around the 40x40 campus perimeter (well outside +/-20 estate bounds)
     const treePositions: Array<[number, number, number]> = [
-      [-16.8, 0, -16.2], [-11.5, 0, -17.4], [-5.2, 0, -16.8], [1.2, 0, -17.5],
-      [7.4, 0, -16.6], [13.2, 0, -17.0], [17.2, 0, -15.4],
-      [17.6, 0, -9.2], [17.2, 0, -2.4], [17.5, 0, 4.6], [17.0, 0, 10.8],
-      [-17.4, 0, -9.6], [-17.0, 0, -2.8], [-17.6, 0, 4.2], [-17.2, 0, 10.5],
-      [-20.5, 0, -13.0], [20.6, 0, -5.5], [20.2, 0, 8.2], [-20.2, 0, 9.0],
-      [-12.5, 0, 19.6], [-4.5, 0, 19.8], [4.5, 0, 20.1], [12.5, 0, 19.5], [-18.5, 0, 19.8],
+      [-23.5, 0, -22.8], [-17.5, 0, -23.6], [-11.0, 0, -23.0], [-4.5, 0, -23.5],
+      [2.2, 0, -23.2], [8.8, 0, -23.6], [15.4, 0, -22.9], [22.2, 0, -23.1],
+      [23.6, 0, -16.5], [23.2, 0, -9.8], [23.8, 0, -3.0], [23.1, 0, 3.8], [23.6, 0, 10.6], [23.2, 0, 17.2],
+      [-23.6, 0, -16.2], [-23.1, 0, -9.4], [-23.8, 0, -2.6], [-23.2, 0, 4.2], [-23.7, 0, 11.0], [-23.3, 0, 17.4],
+      [-27.2, 0, -12.0], [27.4, 0, -6.0], [27.0, 0, 8.5], [-27.0, 0, 9.2],
+      [-19.0, 0, 26.2], [-11.5, 0, 26.5], [-4.0, 0, 26.1], [4.0, 0, 26.4], [11.5, 0, 26.0], [19.0, 0, 26.3],
     ];
 
     const trunkGeo = new THREE.BoxGeometry(0.42, 1.15, 0.42);
@@ -626,10 +626,14 @@ export class LabSceneController {
       }
     }
 
-    // 1b. Rebuild multi-building dynamic cutaway architectural shells when HQ tier, owned land parcels, or Era changes
+    // 1b. Rebuild multi-building multi-story cutaway architectural shells when HQ tier, owned land, stories, or Era changes
     const eraIdx = Math.min(Math.max(0, game.eraIndex), ERA_BUILDING_THEMES.length - 1);
     const ownedKey = (game.ownedLandIds ?? []).join(',');
-    const shellSig = `e${eraIdx}|t${game.buildingTier ?? 0}|l:${ownedKey}`;
+    const storiesKey = Object.entries(game.buildingStories ?? {})
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => `${k}:${v}`)
+      .join(',');
+    const shellSig = `e${eraIdx}|t${game.buildingTier ?? 0}|l:${ownedKey}|s:${storiesKey}`;
     if (force || shellSig !== this.lastShellSignature) {
       this.lastShellSignature = shellSig;
       const buildings = getActiveCampusBuildings(game);
@@ -1103,29 +1107,63 @@ export class LabSceneController {
       this.buildingShellGroup.add(mesh);
     };
 
-    // Main front entrance stone walkway from Main HQ down to the front driveway apron
+    // Main front entrance stone boulevard connecting the south road to Main HQ (and South Plaza if built)
     const hq = buildings[0];
     if (hq) {
-      addWalkway(12, 15, hq.maxZ + 1, this.gridH - 1);
-    }
-    // Connecting paved campus walkways whenever neighboring buildings are constructed!
-    if (ownedLandIds.includes('east_datacenter') || ownedLandIds.includes('ne_superpod')) {
-      addWalkway(20, 20, ownedLandIds.includes('ne_superpod') ? 4 : 13, 22);
-    }
-    if (ownedLandIds.includes('west_annex') || ownedLandIds.includes('nw_innovation')) {
-      addWalkway(7, 7, ownedLandIds.includes('nw_innovation') ? 4 : 13, 22);
-    }
-    if (
-      ownedLandIds.includes('north_research') ||
-      ownedLandIds.includes('ne_superpod') ||
-      ownedLandIds.includes('nw_innovation')
-    ) {
-      const px1 = ownedLandIds.includes('nw_innovation') ? 3 : 10;
-      const px2 = ownedLandIds.includes('ne_superpod') ? 24 : 17;
-      addWalkway(px1, px2, 9, 9);
+      const hasSouthPlaza = ownedLandIds.includes('south_plaza');
+      if (!hasSouthPlaza) {
+        addWalkway(18, 21, hq.maxZ + 1, this.gridH - 1);
+      } else {
+        addWalkway(18, 21, 37, this.gridH - 1);
+      }
     }
 
-    // Subtle expandable land parcel corner survey stakes on unowned plots so players see buyable campus land!
+    // Dynamic paved campus walkway network across all 5 columns & 3 rows as land parcels are acquired!
+    const hasAny = (ids: string[]) => ids.some((id) => ownedLandIds.includes(id));
+    if (hasAny(['east_datacenter', 'ne_superpod', 'se_datacenter'])) {
+      addWalkway(
+        25,
+        25,
+        hasAny(['ne_superpod']) ? 4 : 14,
+        hasAny(['se_datacenter']) ? 35 : 25,
+      );
+    }
+    if (hasAny(['west_annex', 'nw_innovation', 'sw_campus'])) {
+      addWalkway(
+        14,
+        14,
+        hasAny(['nw_innovation']) ? 4 : 14,
+        hasAny(['sw_campus']) ? 35 : 25,
+      );
+    }
+    if (hasAny(['far_east_mega', 'far_east_north', 'far_east_south'])) {
+      addWalkway(
+        32,
+        32,
+        hasAny(['far_east_north']) ? 4 : 14,
+        hasAny(['far_east_south']) ? 35 : 25,
+      );
+    }
+    if (hasAny(['far_west_labs', 'far_west_north', 'far_west_south'])) {
+      addWalkway(
+        7,
+        7,
+        hasAny(['far_west_north']) ? 4 : 14,
+        hasAny(['far_west_south']) ? 35 : 25,
+      );
+    }
+    if (hasAny(['north_research', 'ne_superpod', 'nw_innovation', 'far_east_north', 'far_west_north'])) {
+      const px1 = hasAny(['far_west_north']) ? 3 : hasAny(['nw_innovation']) ? 10 : 16;
+      const px2 = hasAny(['far_east_north']) ? 36 : hasAny(['ne_superpod']) ? 29 : 23;
+      addWalkway(px1, px2, 12, 12);
+    }
+    if (hasAny(['south_plaza', 'se_datacenter', 'sw_campus', 'far_east_south', 'far_west_south'])) {
+      const px1 = hasAny(['far_west_south']) ? 3 : hasAny(['sw_campus']) ? 10 : 16;
+      const px2 = hasAny(['far_east_south']) ? 36 : hasAny(['se_datacenter']) ? 29 : 23;
+      addWalkway(px1, px2, 27, 27);
+    }
+
+    // Subtle expandable land parcel corner survey stakes across all unowned lots in the 40x40 estate!
     const stakePostMat = track(
       new THREE.MeshToonMaterial({ color: '#e6b84c', gradientMap: this.textures.toonGradient }),
     );
@@ -1156,6 +1194,18 @@ export class LabSceneController {
     }
 
     const cornerCurbGeo = track(new THREE.BoxGeometry(wallThick + 0.14, curbH + 0.08, wallThick + 0.14));
+    const roofUnitMat = track(
+      new THREE.MeshToonMaterial({
+        color: eraIdx >= 5 ? '#d0dde8' : '#7b8499',
+        gradientMap: this.textures.toonGradient,
+      }),
+    );
+    const antennaMat = track(
+      new THREE.MeshToonMaterial({
+        color: eraIdx >= 6 ? '#ffe478' : '#a9b5cc',
+        gradientMap: this.textures.toonGradient,
+      }),
+    );
 
     const buildSingleBuilding = (b: BuildingFootprint) => {
       const wLeft = b.minX - this.gridOffsetX;
@@ -1167,7 +1217,10 @@ export class LabSceneController {
       const cx = (wLeft + wRight) * 0.5;
       const cz = (wTop + wBottom) * 0.5;
       const isDC = b.role === 'datacenter';
-      const upperH = (isDC ? theme.wallHeight + 0.18 : theme.wallHeight) - curbH;
+      const stories = Math.max(1, Math.min(6, b.stories ?? 1));
+      const story1H = (isDC ? theme.wallHeight + 0.16 : theme.wallHeight) - curbH;
+      const upperStoryH = 0.88;
+      const totalUpperH = story1H + (stories - 1) * upperStoryH;
 
       const bExtMat = isDC ? dcExtMat : wallExtMat;
       const bCorniceMat = isDC ? dcCorniceMat : corniceMat;
@@ -1221,30 +1274,45 @@ export class LabSceneController {
         upperGroup.position.set(0, curbH, 0);
         wallRoot.add(upperGroup);
 
-        const innerBodyGeo = track(new THREE.BoxGeometry(length + wallThick * 1.8, upperH, wallThick * 0.58));
+        // Full multi-story wall core (rises cleanly 1F..6F!)
+        const innerBodyGeo = track(new THREE.BoxGeometry(length + wallThick * 1.8, totalUpperH, wallThick * 0.58));
         const innerBody = new THREE.Mesh(innerBodyGeo, wallMainMat);
-        innerBody.position.set(0, upperH * 0.5, wallThick * 0.21);
+        innerBody.position.set(0, totalUpperH * 0.5, wallThick * 0.21);
         innerBody.castShadow = true;
         innerBody.receiveShadow = true;
         upperGroup.add(innerBody);
 
-        const outerBodyGeo = track(new THREE.BoxGeometry(length + wallThick * 1.8, upperH, wallThick * 0.46));
+        const outerBodyGeo = track(new THREE.BoxGeometry(length + wallThick * 1.8, totalUpperH, wallThick * 0.46));
         const outerBody = new THREE.Mesh(outerBodyGeo, bExtMat);
-        outerBody.position.set(0, upperH * 0.5, -wallThick * 0.25);
+        outerBody.position.set(0, totalUpperH * 0.5, -wallThick * 0.25);
         outerBody.castShadow = true;
         outerBody.receiveShadow = true;
         upperGroup.add(outerBody);
 
-        const capGeo = track(new THREE.BoxGeometry(length + wallThick * 2.15, 0.14, wallThick + 0.14));
+        // Top skyscraper roof parapet cornice
+        const capGeo = track(new THREE.BoxGeometry(length + wallThick * 2.2, 0.18, wallThick + 0.18));
         const cap = new THREE.Mesh(capGeo, bCorniceMat);
-        cap.position.set(0, upperH + 0.05, 0);
+        cap.position.set(0, totalUpperH + 0.07, 0);
         cap.castShadow = true;
         upperGroup.add(cap);
 
+        // Horizontal floor-slab divider bands between every story (2F..6F)
+        if (stories > 1) {
+          const beltGeo = track(new THREE.BoxGeometry(length + wallThick * 2.1, 0.14, wallThick + 0.14));
+          for (let s = 1; s < stories; s++) {
+            const beltY = story1H + (s - 1) * upperStoryH;
+            const belt = new THREE.Mesh(beltGeo, bCorniceMat);
+            belt.position.set(0, beltY, 0);
+            belt.castShadow = true;
+            upperGroup.add(belt);
+          }
+        }
+
+        // Era glowing crown trim strip along the top story
         if (accentMat) {
           const stripGeo = track(new THREE.BoxGeometry(length + wallThick * 1.9, 0.09, wallThick + 0.09));
           const strip = new THREE.Mesh(stripGeo, accentMat);
-          strip.position.set(0, upperH - 0.16, 0);
+          strip.position.set(0, totalUpperH - 0.16, 0);
           upperGroup.add(strip);
           if (theme.accentEmissive) this.shellGlowMeshes.push(strip);
         }
@@ -1252,64 +1320,103 @@ export class LabSceneController {
         const bayCount = Math.max(2, Math.floor(length / 2.3));
         const baySpacing = length / bayCount;
         const winW = Math.min(1.45, baySpacing * 0.64);
-        const winH = isDC ? upperH * 0.38 : eraIdx >= 2 ? upperH * 0.62 : upperH * 0.48;
-        const winY = isDC ? upperH * 0.62 : upperH * 0.52;
 
-        const winFrameGeo = track(new THREE.BoxGeometry(winW + 0.14, winH + 0.14, wallThick + 0.08));
-        const winGlassGeo = track(new THREE.BoxGeometry(winW, winH, wallThick + 0.11));
-        const mullionVGeo = track(new THREE.BoxGeometry(0.06, winH, wallThick + 0.13));
+        const pilasterGeo = track(new THREE.BoxGeometry(0.22, totalUpperH + 0.08, wallThick + 0.13));
+        // Full-height structural corner + bay pilasters
+        for (let idxB = 0; idxB < bayCount - 1; idxB++) {
+          const px = -length * 0.5 + (idxB + 1) * baySpacing;
+          const pilaster = new THREE.Mesh(pilasterGeo, pilasterMat);
+          pilaster.position.set(px, totalUpperH * 0.5, 0);
+          pilaster.castShadow = true;
+          upperGroup.add(pilaster);
+        }
+
+        // Stacked illuminated window bays for EVERY story (1F .. stories)
+        const winH1 = isDC ? story1H * 0.38 : eraIdx >= 2 ? story1H * 0.62 : story1H * 0.48;
+        const winHUpper = isDC ? upperStoryH * 0.42 : eraIdx >= 2 ? upperStoryH * 0.62 : upperStoryH * 0.52;
+
+        const winFrameGeo1 = track(new THREE.BoxGeometry(winW + 0.14, winH1 + 0.14, wallThick + 0.08));
+        const winGlassGeo1 = track(new THREE.BoxGeometry(winW, winH1, wallThick + 0.11));
+        const mullionGeo1 = track(new THREE.BoxGeometry(0.06, winH1, wallThick + 0.13));
         const sillGeo = track(new THREE.BoxGeometry(winW + 0.24, 0.08, wallThick + 0.16));
-        const pilasterGeo = track(new THREE.BoxGeometry(0.22, upperH + 0.06, wallThick + 0.12));
 
-        for (let idxB = 0; idxB < bayCount; idxB++) {
-          const bx = -length * 0.5 + (idxB + 0.5) * baySpacing;
-          const isDoorBay = side === 'south' && idxB === Math.floor(bayCount / 2);
-          if (isDoorBay) {
-            const doorFrameGeo = track(new THREE.BoxGeometry(1.45, upperH * 0.82, wallThick + 0.1));
-            const doorFrame = new THREE.Mesh(doorFrameGeo, frameMat);
-            doorFrame.position.set(bx, upperH * 0.41, 0);
-            upperGroup.add(doorFrame);
+        const winFrameGeoU =
+          stories > 1 ? track(new THREE.BoxGeometry(winW + 0.14, winHUpper + 0.12, wallThick + 0.08)) : null;
+        const winGlassGeoU =
+          stories > 1 ? track(new THREE.BoxGeometry(winW, winHUpper, wallThick + 0.11)) : null;
+        const mullionGeoU =
+          stories > 1 ? track(new THREE.BoxGeometry(0.06, winHUpper, wallThick + 0.13)) : null;
 
-            const doorGlassGeo = track(new THREE.BoxGeometry(1.2, upperH * 0.72, wallThick + 0.12));
-            const doorGlass = new THREE.Mesh(doorGlassGeo, bGlassMat);
-            doorGlass.position.set(bx, upperH * 0.38, 0);
-            upperGroup.add(doorGlass);
-            this.shellWindowMeshes.push(doorGlass);
-          } else {
-            const frame = new THREE.Mesh(winFrameGeo, frameMat);
-            frame.position.set(bx, winY, 0);
-            upperGroup.add(frame);
+        for (let s = 0; s < stories; s++) {
+          const floorBaseY = s === 0 ? 0 : story1H + (s - 1) * upperStoryH;
+          const curH = s === 0 ? story1H : upperStoryH;
+          const curWinH = s === 0 ? winH1 : winHUpper;
+          const curWinY = floorBaseY + (isDC ? curH * 0.58 : curH * 0.52);
+          const fGeo = s === 0 ? winFrameGeo1 : winFrameGeoU!;
+          const gGeo = s === 0 ? winGlassGeo1 : winGlassGeoU!;
+          const mGeo = s === 0 ? mullionGeo1 : mullionGeoU!;
 
-            const glass = new THREE.Mesh(winGlassGeo, bGlassMat);
-            glass.position.set(bx, winY, 0);
-            upperGroup.add(glass);
-            this.shellWindowMeshes.push(glass);
+          for (let idxB = 0; idxB < bayCount; idxB++) {
+            const bx = -length * 0.5 + (idxB + 0.5) * baySpacing;
+            const isDoorBay = s === 0 && side === 'south' && idxB === Math.floor(bayCount / 2);
+            if (isDoorBay) {
+              const doorFrameGeo = track(new THREE.BoxGeometry(1.45, story1H * 0.82, wallThick + 0.1));
+              const doorFrame = new THREE.Mesh(doorFrameGeo, frameMat);
+              doorFrame.position.set(bx, story1H * 0.41, 0);
+              upperGroup.add(doorFrame);
 
-            if (eraIdx < 5) {
-              const mullion = new THREE.Mesh(mullionVGeo, frameMat);
-              mullion.position.set(bx, winY, 0);
-              upperGroup.add(mullion);
+              const doorGlassGeo = track(new THREE.BoxGeometry(1.2, story1H * 0.72, wallThick + 0.12));
+              const doorGlass = new THREE.Mesh(doorGlassGeo, bGlassMat);
+              doorGlass.position.set(bx, story1H * 0.38, 0);
+              upperGroup.add(doorGlass);
+              this.shellWindowMeshes.push(doorGlass);
+            } else {
+              const frame = new THREE.Mesh(fGeo, frameMat);
+              frame.position.set(bx, curWinY, 0);
+              upperGroup.add(frame);
+
+              const glass = new THREE.Mesh(gGeo, bGlassMat);
+              glass.position.set(bx, curWinY, 0);
+              upperGroup.add(glass);
+              this.shellWindowMeshes.push(glass);
+
+              if (eraIdx < 5) {
+                const mullion = new THREE.Mesh(mGeo, frameMat);
+                mullion.position.set(bx, curWinY, 0);
+                upperGroup.add(mullion);
+              }
+
+              const sill = new THREE.Mesh(sillGeo, bCorniceMat);
+              sill.position.set(bx, curWinY - curWinH * 0.5 - 0.06, 0);
+              upperGroup.add(sill);
             }
-
-            const sill = new THREE.Mesh(sillGeo, bCorniceMat);
-            sill.position.set(bx, winY - winH * 0.5 - 0.06, 0);
-            upperGroup.add(sill);
-          }
-
-          if (idxB < bayCount - 1) {
-            const px = -length * 0.5 + (idxB + 1) * baySpacing;
-            const pilaster = new THREE.Mesh(pilasterGeo, pilasterMat);
-            pilaster.position.set(px, upperH * 0.5, 0);
-            pilaster.castShadow = true;
-            upperGroup.add(pilaster);
           }
         }
 
-        if (theme.cornerBeacon) {
+        // Multi-story skyscraper crown details (rooftop HVAC penthouse & comms/quantum spires on 2F+!)
+        if (stories >= 2 && (side === 'north' || side === 'west')) {
+          const roofBoxGeo = track(new THREE.BoxGeometry(Math.min(2.2, length * 0.32), 0.48, wallThick + 0.35));
+          const roofBox = new THREE.Mesh(roofBoxGeo, roofUnitMat);
+          roofBox.position.set(0, totalUpperH + 0.38, -0.05);
+          roofBox.castShadow = true;
+          upperGroup.add(roofBox);
+
+          if (stories >= 3) {
+            const spireH = 0.65 + (stories - 2) * 0.25;
+            const spireGeo = track(new THREE.BoxGeometry(0.11, spireH, 0.11));
+            const spire = new THREE.Mesh(spireGeo, antennaMat);
+            spire.position.set(length * 0.28, totalUpperH + 0.16 + spireH * 0.5, 0);
+            upperGroup.add(spire);
+          }
+        }
+
+        // Glowing corner rooftop beacons (always present on 4F+ skyscrapers or Era 5+)
+        const beaconHex = theme.cornerBeacon ?? (stories >= 4 ? (isDC ? '#56c7ff' : '#ffe478') : null);
+        if (beaconHex) {
           const beaconMat = track(
             new THREE.MeshToonMaterial({
-              color: theme.cornerBeacon,
-              emissive: theme.cornerBeacon,
+              color: beaconHex,
+              emissive: beaconHex,
               emissiveIntensity: 0.9,
               gradientMap: this.textures.toonGradient,
             }),
@@ -1317,7 +1424,7 @@ export class LabSceneController {
           const beaconGeo = track(new THREE.BoxGeometry(0.24, 0.24, 0.24));
           for (const endX of [-length * 0.5 - wallThick * 0.5, length * 0.5 + wallThick * 0.5]) {
             const bMesh = new THREE.Mesh(beaconGeo, beaconMat);
-            bMesh.position.set(endX, upperH + 0.28, 0);
+            bMesh.position.set(endX, totalUpperH + 0.28, 0);
             upperGroup.add(bMesh);
             this.shellGlowMeshes.push(bMesh);
           }
@@ -1423,8 +1530,8 @@ export class LabSceneController {
     this.camera.zoom = this.currentZoom;
     this.camera.updateProjectionMatrix();
 
-    // Place camera at true isometric direction from target
-    const dist = 32;
+    // Place camera at true isometric direction from target (dist 48 prevents tall 6F towers from near-clipping)
+    const dist = 48;
     const cosPitch = Math.cos(ISO_PITCH);
     const sinPitch = Math.sin(ISO_PITCH);
     const offX = Math.sin(this.currentYaw) * cosPitch * dist;

@@ -8,6 +8,7 @@ import { FUNDING_ROUNDS } from '../data/funding';
 import { CATALOG_BY_ID } from '../data/items';
 import { STAFF_TRAIT_BY_ID } from '../data/staff';
 import { TECH_BY_ID } from '../data/techs';
+import { getActiveCampusBuildings } from './facility';
 import { pushNotification, type GameState, type ResourceSnapshot } from './types';
 
 export function computeResources(state: GameState): ResourceSnapshot {
@@ -15,14 +16,24 @@ export function computeResources(state: GameState): ResourceSnapshot {
   let powerSupply =
     BALANCE.baseGridPowerCapacity + state.extraGridPowerContracts * 20;
   let powerDemand = 0;
-  let coolingSupply = BALANCE.baseCoolingCapacity;
+  let coolingSupply: number = BALANCE.baseCoolingCapacity;
   let heatLoad = 0;
   let deskSlots = 0;
   let researchBonusPct = 0;
   let passiveMoodBonus = 0;
   let upkeepPerDay = 0;
 
-  // Floor bonuses
+  const buildings = getActiveCampusBuildings(state);
+  const getStoriesForTile = (gx: number, gz: number): number => {
+    for (const b of buildings) {
+      if (gx >= b.minX && gx <= b.maxX && gz >= b.minZ && gz <= b.maxZ) {
+        return b.stories;
+      }
+    }
+    return 1;
+  };
+
+  // Floor bonuses (plus vertical multi-story research & cooling bonuses)
   for (const f of state.floors) {
     if (f === 'lab') {
       researchBonusPct += 0.5;
@@ -36,19 +47,34 @@ export function computeResources(state: GameState): ResourceSnapshot {
     }
   }
 
-  // Placed items
+  for (const b of buildings) {
+    const extraStories = Math.max(0, b.stories - 1);
+    if (extraStories > 0) {
+      researchBonusPct += extraStories * 3.5;
+      coolingSupply += extraStories * 14;
+      passiveMoodBonus += extraStories * 1.5;
+    }
+  }
+
+  // Placed items scaled cleanly by their building's vertical story count (1F..6F)
   for (const placed of state.items) {
     const def = CATALOG_BY_ID[placed.itemId];
     if (!def) continue;
-    if (def.compute) computeRaw += def.compute;
-    if (def.powerDraw) powerDemand += def.powerDraw;
+    const stories = getStoriesForTile(placed.gx, placed.gz);
+    const extra = Math.max(0, stories - 1);
+    const computeMult = 1 + extra * 0.85;
+    const infraLoadMult = 1 + extra * 0.35;
+    const bonusMult = 1 + extra * 0.45;
+
+    if (def.compute) computeRaw += Math.round(def.compute * computeMult);
+    if (def.powerDraw) powerDemand += def.powerDraw * infraLoadMult;
     if (def.powerGen) powerSupply += def.powerGen;
-    if (def.coolingGen) coolingSupply += def.coolingGen;
-    if (def.heatGen) heatLoad += def.heatGen;
-    if (def.deskSlots) deskSlots += def.deskSlots;
-    if (def.researchBonus) researchBonusPct += def.researchBonus;
-    if (def.moodBonus) passiveMoodBonus += def.moodBonus;
-    upkeepPerDay += def.upkeepPerDay;
+    if (def.coolingGen) coolingSupply += def.coolingGen * (1 + extra * 0.4);
+    if (def.heatGen) heatLoad += def.heatGen * infraLoadMult;
+    if (def.deskSlots) deskSlots += def.deskSlots * stories;
+    if (def.researchBonus) researchBonusPct += def.researchBonus * bonusMult;
+    if (def.moodBonus) passiveMoodBonus += def.moodBonus * (1 + extra * 0.3);
+    upkeepPerDay += def.upkeepPerDay * (1 + extra * 0.25);
   }
 
   // Tech bonuses
@@ -88,26 +114,40 @@ export function computeResources(state: GameState): ResourceSnapshot {
   coolingSupply += infraCoolingBonus;
 
   // Temporary event penalties
-  if (state.totalDays < state.powerPenaltyUntilDay) {
+  if (state.totalDays < state.powerPenaltyUntilDay && !state.cheatUnlimitedPower) {
     powerSupply *= 0.72;
   }
 
-  const isUnderpowered = powerDemand > powerSupply + 0.01;
-  const isOverheated = heatLoad > coolingSupply + 0.01;
+  const unlimitedPower = Boolean(state.cheatUnlimitedPower);
+  const unlimitedCompute = Boolean(state.cheatUnlimitedCompute);
+
+  if (unlimitedPower) {
+    powerSupply = 999_999;
+    coolingSupply = 999_999;
+  }
+
+  const isUnderpowered = !unlimitedPower && powerDemand > powerSupply + 0.01;
+  const isOverheated = !unlimitedPower && heatLoad > coolingSupply + 0.01;
 
   let computeThrottle = 1.0;
-  if (isUnderpowered) computeThrottle *= BALANCE.underpowerSpeedPenalty;
-  if (isOverheated) computeThrottle *= BALANCE.overheatSpeedPenalty;
-  if (state.totalDays < state.computePenaltyUntilDay) computeThrottle *= 0.75;
+  if (!unlimitedCompute) {
+    if (isUnderpowered) computeThrottle *= BALANCE.underpowerSpeedPenalty;
+    if (isOverheated) computeThrottle *= BALANCE.overheatSpeedPenalty;
+    if (state.totalDays < state.computePenaltyUntilDay) computeThrottle *= 0.75;
+  }
 
-  const computeTotal = Math.round(
-    computeRaw * (1 + computeEffBonus + infraComputeBonus) * computeThrottle,
-  );
+  const computeTotal = unlimitedCompute
+    ? 999_999_999
+    : Math.round(
+        computeRaw * (1 + computeEffBonus + infraComputeBonus) * computeThrottle,
+      );
   const computeUsed = state.trainingJobs.reduce(
     (sum, job) => sum + job.computeAllocated,
     0,
   );
-  const computeAvailable = Math.max(0, computeTotal - computeUsed);
+  const computeAvailable = unlimitedCompute
+    ? 999_999_999
+    : Math.max(0, computeTotal - computeUsed);
 
   const rawProductRevenue = state.products.reduce(
     (sum, p) => sum + p.revenuePerDay,
@@ -116,7 +156,10 @@ export function computeResources(state: GameState): ResourceSnapshot {
   const revenuePerDay =
     rawProductRevenue * (1 + revenueTechBonus + salesRevenueBonus);
 
-  const powerBillPerDay = state.cheatFreeBuild ? 0 : powerDemand * BALANCE.basePowerCostPerKwPerDay;
+  const powerBillPerDay =
+    state.cheatFreeBuild || unlimitedPower
+      ? 0
+      : powerDemand * BALANCE.basePowerCostPerKwPerDay;
   const effectiveUpkeep = state.cheatFreeBuild ? 0 : upkeepPerDay;
   const effectivePayroll = state.cheatFreeBuild ? 0 : payrollPerDay;
   const netPerDay = revenuePerDay - (effectiveUpkeep + effectivePayroll + powerBillPerDay);
@@ -142,6 +185,8 @@ export function computeResources(state: GameState): ResourceSnapshot {
     computeThrottle,
     isUnderpowered,
     isOverheated,
+    unlimitedCompute,
+    unlimitedPower,
   };
 }
 

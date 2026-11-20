@@ -5,22 +5,28 @@
  */
 
 import { ERAS } from '../data/techs';
-import { BUILDING_TIERS } from '../sim/facility';
+import { BUILDING_TIERS, getMaxCampusStories, LAND_PARCELS, MAX_BUILDING_STORIES } from '../sim/facility';
 import { useGameStore } from '../store/useGameStore';
 
 export function CheatMenu() {
   const open = useGameStore((s) => s.cheatMenuOpen);
   const closeCheatMenu = useGameStore((s) => s.closeCheatMenu);
 
-  const cash = useGameStore((s) => s.game.cash);
-  const bonusCompute = useGameStore((s) => s.game.bonusCompute);
-  const staffCount = useGameStore((s) => s.game.staff.length);
-  const activeJobs = useGameStore((s) => s.game.trainingJobs.length);
-  const eraIndex = useGameStore((s) => s.game.eraIndex);
-  const buildingTier = useGameStore((s) => s.game.buildingTier ?? 0);
-  const ownedLandCount = useGameStore((s) => (s.game.ownedLandIds ?? []).length);
-  const cheatPerfectModels = useGameStore((s) => Boolean(s.game.cheatPerfectModels));
-  const cheatFreeBuild = useGameStore((s) => Boolean(s.game.cheatFreeBuild));
+  const game = useGameStore((s) => s.game);
+  const cash = game.cash;
+  const staffCount = game.staff.length;
+  const activeJobs = game.trainingJobs.length;
+  const eraIndex = game.eraIndex;
+  const buildingTier = game.buildingTier ?? 0;
+  const ownedLandCount = (game.ownedLandIds ?? []).length;
+  const maxBuildings = 1 + LAND_PARCELS.length;
+  const maxStories = getMaxCampusStories(game);
+
+  const cheatPerfectModels = Boolean(game.cheatPerfectModels);
+  const cheatFreeBuild = Boolean(game.cheatFreeBuild);
+  const cheatUnlimitedCompute = Boolean(game.cheatUnlimitedCompute);
+  const cheatUnlimitedPower = Boolean(game.cheatUnlimitedPower);
+  const cheatUnlimitedModels = Boolean(game.cheatUnlimitedModels);
 
   const cheatGodMood = useGameStore((s) => s.cheatGodMood);
   const cheatHyperTraining = useGameStore((s) => s.cheatHyperTraining);
@@ -28,18 +34,20 @@ export function CheatMenu() {
 
   const cheatAddCash = useGameStore((s) => s.cheatAddCash);
   const cheatSetCash = useGameStore((s) => s.cheatSetCash);
-  const cheatAddCompute = useGameStore((s) => s.cheatAddCompute);
-  const cheatAddGridPower = useGameStore((s) => s.cheatAddGridPower);
   const cheatMaxMetrics = useGameStore((s) => s.cheatMaxMetrics);
   const cheatCompleteAllTraining = useGameStore((s) => s.cheatCompleteAllTraining);
   const cheatUnlockAllResearchAndData = useGameStore((s) => s.cheatUnlockAllResearchAndData);
   const cheatMaxStaffMood = useGameStore((s) => s.cheatMaxStaffMood);
   const cheatMaxAllStaffSkill = useGameStore((s) => s.cheatMaxAllStaffSkill);
-  const cheatSpawnGeniuses = useGameStore((s) => s.cheatSpawnGeniuses);
+  const cheatFillCampusWithGeniuses = useGameStore((s) => s.cheatFillCampusWithGeniuses);
   const cheatJumpToEra = useGameStore((s) => s.cheatJumpToEra);
   const cheatMaxBuildingAndDataCenter = useGameStore((s) => s.cheatMaxBuildingAndDataCenter);
   const cheatUnlockAllLand = useGameStore((s) => s.cheatUnlockAllLand);
+  const cheatMaxAllStories = useGameStore((s) => s.cheatMaxAllStories);
   const cheatMaxAllModels = useGameStore((s) => s.cheatMaxAllModels);
+  const cheatToggleUnlimitedCompute = useGameStore((s) => s.cheatToggleUnlimitedCompute);
+  const cheatToggleUnlimitedPower = useGameStore((s) => s.cheatToggleUnlimitedPower);
+  const cheatToggleUnlimitedModels = useGameStore((s) => s.cheatToggleUnlimitedModels);
   const cheatTogglePerfectModels = useGameStore((s) => s.cheatTogglePerfectModels);
   const cheatToggleFreeBuild = useGameStore((s) => s.cheatToggleFreeBuild);
   const autoFurnishNow = useGameStore((s) => s.autoFurnishNow);
@@ -60,7 +68,7 @@ export function CheatMenu() {
       aria-label="Founder Vault"
       data-testid="cheat-menu"
     >
-      <div className="pixel-frame-gold w-[560px] max-w-full max-h-[92dvh] overflow-y-auto pixel-scroll p-2.5 sm:p-3.5 text-[#f8f0df]">
+      <div className="pixel-frame-gold w-[590px] max-w-full max-h-[92dvh] overflow-y-auto pixel-scroll p-2.5 sm:p-3.5 text-[#f8f0df]">
         {/* Header */}
         <div className="flex items-center justify-between border-b-2 border-[#47424d] pb-2 mb-2.5">
           <div className="min-w-0">
@@ -68,7 +76,7 @@ export function CheatMenu() {
               FOUNDER VAULT // OVERRIDE
             </div>
             <div className="text-[10px] sm:text-[11px] text-[#b0a89f] tabular-nums truncate">
-              ${Math.floor(cash).toLocaleString()} · HQ T{buildingTier + 1} ({tierInfo.name}) · {1 + ownedLandCount}/6 Bldgs · +{bonusCompute.toLocaleString()} TF · Staff {staffCount}
+              ${Math.floor(cash).toLocaleString()} · HQ T{buildingTier + 1} ({tierInfo.name}) · {1 + ownedLandCount}/{maxBuildings} Bldgs · Max {maxStories}F · Staff {staffCount}
             </div>
           </div>
           <button
@@ -81,39 +89,47 @@ export function CheatMenu() {
           </button>
         </div>
 
-        {/* Section 1: Instant 6-Building Campus, Land & Hyperscale Data Centers */}
+        {/* Section 1: 15-Building Campus, Land & Multi-Story 6F Towers */}
         <div className="pixel-inset p-2 mb-2">
           <div className="font-pixel-display text-[10px] sm:text-[11px] text-[#8de4ff] mb-1.5">
-            6-BUILDING CAMPUS, LAND &amp; DATA CENTERS
+            15-BUILDING CAMPUS, LAND &amp; MULTI-STORY TOWERS (1F–{MAX_BUILDING_STORIES}F)
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
             <button
               type="button"
               onClick={cheatMaxBuildingAndDataCenter}
               data-testid="cheat-max-hq"
-              className="sm:col-span-2 pixel-btn pixel-btn-gold py-1.5 px-2 text-[11px] font-pixel-display"
+              className="sm:col-span-3 pixel-btn pixel-btn-gold py-1.5 px-2 text-[11px] font-pixel-display"
             >
-              MAX 6-BUILDING CAMPUS + DATA CENTERS
+              MAX 15-BLDG {MAX_BUILDING_STORIES}F MEGA-CAMPUS + DATA CENTERS
             </button>
             <button
               type="button"
               onClick={cheatUnlockAllLand}
               data-testid="cheat-unlock-land"
-              className="pixel-btn pixel-btn-gold py-1.5 px-2 text-[11px] font-pixel-display"
+              className="pixel-btn pixel-btn-gold py-1.5 px-2 text-[10px] font-pixel-display"
             >
-              Buy All Land ({1 + ownedLandCount}/6 Bldgs)
+              Buy All Land ({1 + ownedLandCount}/{maxBuildings})
+            </button>
+            <button
+              type="button"
+              onClick={cheatMaxAllStories}
+              data-testid="cheat-max-stories"
+              className="pixel-btn pixel-btn-gold py-1.5 px-2 text-[10px] font-pixel-display"
+            >
+              Max All Bldgs to {MAX_BUILDING_STORIES}F
             </button>
             <button
               type="button"
               onClick={autoFurnishNow}
               data-testid="cheat-auto-furnish"
-              className="pixel-btn pixel-btn-green py-1.5 px-2 text-[11px] font-pixel-display"
+              className="pixel-btn pixel-btn-green py-1.5 px-2 text-[10px] font-pixel-display"
             >
-              Auto-Furnish &amp; Balance Lab
+              Auto-Furnish &amp; Balance
             </button>
           </div>
           <div className="text-[10px] text-[#b0a89f] mt-1">
-            Builds all 6 campus buildings (Main HQ, East Compute Wing, North Research, West Annex, NE SuperPod &amp; NW Park) with era-matched GPU, Quantum (2045), or Singularity (2100) clusters!
+            Constructs all {maxBuildings} campus plots across North, South, East &amp; West, raises every building to {MAX_BUILDING_STORIES}F skyscrapers, and deploys era-matched clusters!
           </div>
         </div>
 
@@ -184,28 +200,55 @@ export function CheatMenu() {
           </div>
         </div>
 
-        {/* Section 4: Compute, Models, Research & Staff */}
+        {/* Section 4: Unlimited Compute/Power/Models & Research/Staff */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
           <div className="pixel-inset p-2 space-y-1.5">
             <div className="font-pixel-display text-[10px] sm:text-[11px] text-[#b0e2f7]">
-              COMPUTE, POWER &amp; MODELS
+              COMPUTE, POWER &amp; MODELS (UNLIMITED)
             </div>
-            <div className="grid grid-cols-2 gap-1">
+            <div className="space-y-1">
               <button
                 type="button"
-                onClick={() => cheatAddCompute(5_000)}
-                data-testid="cheat-compute-5000"
-                className="pixel-btn py-1 text-[10px] font-pixel-display"
+                onClick={cheatToggleUnlimitedCompute}
+                data-testid="cheat-toggle-unlimited-compute"
+                className={`w-full flex items-center justify-between px-2 py-1 text-[10px] font-pixel-display pixel-btn ${
+                  cheatUnlimitedCompute ? 'pixel-btn-green' : ''
+                }`}
               >
-                +5,000 TF
+                <span>Unlimited Compute (∞ TF)</span>
+                <span>{cheatUnlimitedCompute ? 'ON' : 'OFF'}</span>
               </button>
               <button
                 type="button"
-                onClick={() => cheatAddGridPower(8)}
-                data-testid="cheat-power-100"
-                className="pixel-btn py-1 text-[10px] font-pixel-display"
+                onClick={cheatToggleUnlimitedPower}
+                data-testid="cheat-toggle-unlimited-power"
+                className={`w-full flex items-center justify-between px-2 py-1 text-[10px] font-pixel-display pixel-btn ${
+                  cheatUnlimitedPower ? 'pixel-btn-green' : ''
+                }`}
               >
-                +200 kW Grid
+                <span>Unlimited Power &amp; Cool (∞)</span>
+                <span>{cheatUnlimitedPower ? 'ON' : 'OFF'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={cheatToggleUnlimitedModels}
+                data-testid="cheat-toggle-unlimited-models"
+                className={`w-full flex items-center justify-between px-2 py-1 text-[10px] font-pixel-display pixel-btn ${
+                  cheatUnlimitedModels ? 'pixel-btn-green' : ''
+                }`}
+              >
+                <span>Unlimited Models (12x · 100)</span>
+                <span>{cheatUnlimitedModels ? 'ON' : 'OFF'}</span>
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-1 pt-0.5">
+              <button
+                type="button"
+                onClick={cheatMaxAllModels}
+                data-testid="cheat-max-models"
+                className="pixel-btn pixel-btn-green py-1 text-[10px] font-pixel-display"
+              >
+                Max Models 100
               </button>
               <button
                 type="button"
@@ -215,14 +258,6 @@ export function CheatMenu() {
               >
                 Max Rep/Safety
               </button>
-              <button
-                type="button"
-                onClick={cheatMaxAllModels}
-                data-testid="cheat-max-models"
-                className="pixel-btn pixel-btn-green py-1 text-[10px] font-pixel-display"
-              >
-                Max Models 100
-              </button>
             </div>
           </div>
 
@@ -230,6 +265,14 @@ export function CheatMenu() {
             <div className="font-pixel-display text-[10px] sm:text-[11px] text-[#99db5c]">
               RESEARCH &amp; STAFF
             </div>
+            <button
+              type="button"
+              onClick={cheatFillCampusWithGeniuses}
+              data-testid="cheat-fill-geniuses"
+              className="w-full pixel-btn pixel-btn-green py-1.5 px-2 text-[10px] font-pixel-display"
+            >
+              Fill Building &amp; Workspaces w/ Geniuses
+            </button>
             <div className="grid grid-cols-2 gap-1">
               <button
                 type="button"
@@ -257,31 +300,21 @@ export function CheatMenu() {
               </button>
               <button
                 type="button"
-                onClick={() => cheatSpawnGeniuses(5)}
-                data-testid="cheat-spawn-geniuses"
-                className="pixel-btn pixel-btn-green py-1 text-[10px] font-pixel-display"
-              >
-                +5 Geniuses
-              </button>
-            </div>
-            <div className="grid grid-cols-2 gap-1">
-              <button
-                type="button"
                 onClick={cheatMaxStaffMood}
                 data-testid="cheat-refill-mood"
                 className="pixel-btn py-1 text-[10px] font-pixel-display"
               >
                 100% Mood
               </button>
-              <button
-                type="button"
-                onClick={() => debugSkipDays(180)}
-                data-testid="cheat-skip-180"
-                className="pixel-btn py-1 text-[10px] font-pixel-display"
-              >
-                Skip +180d
-              </button>
             </div>
+            <button
+              type="button"
+              onClick={() => debugSkipDays(180)}
+              data-testid="cheat-skip-180"
+              className="w-full pixel-btn py-1 text-[10px] font-pixel-display"
+            >
+              Skip +180 Days
+            </button>
           </div>
         </div>
 

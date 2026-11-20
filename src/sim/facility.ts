@@ -1,9 +1,11 @@
 /**
- * Pure deterministic Multi-Building Campus Land Expansion, HQ Tier Upgrades,
- * Auto-Furnish workspace manager, and Founder Vault Max Mega-Campus builder.
+ * Pure deterministic 40x40 15-Building Master-Planned Campus, Multi-Story Tower
+ * Upgrades (1F–6F), Land Parcel Purchasing, Auto-Furnish, and Founder Vault
+ * Max 15-Building 6F Mega-Campus builder.
  * Zero React or Three.js imports.
  */
 
+import { BALANCE } from '../data/balance';
 import { CATALOG_BY_ID, type FloorType } from '../data/items';
 import { computeResources } from './economy';
 import {
@@ -23,6 +25,17 @@ import {
   type RotationQuarter,
 } from './types';
 
+export const MAX_BUILDING_STORIES = BALANCE.maxBuildingStories; // 6 stories (1F..6F)
+
+export const STORY_UPGRADE_COSTS: readonly number[] = [
+  0, // 1F (ground)
+  38_000, // 2F
+  95_000, // 3F
+  195_000, // 4F
+  360_000, // 5F
+  640_000, // 6F
+];
+
 export interface BuildingFootprint {
   id: string;
   name: string;
@@ -32,12 +45,14 @@ export interface BuildingFootprint {
   maxZ: number;
   defaultFloor: FloorType;
   role: 'hq' | 'datacenter' | 'research' | 'annex';
+  stories: number;
 }
 
 export interface LandParcelDef {
   id: LandParcelId;
   name: string;
   shortName: string;
+  district: 'Central' | 'North' | 'South' | 'East' | 'West';
   tagline: string;
   cost: number;
   autoGrantedAtTier?: BuildingTier;
@@ -49,18 +64,25 @@ export interface LandParcelDef {
   role: 'datacenter' | 'research' | 'annex';
 }
 
+/**
+ * 14 surrounding buyable land parcels + Main HQ = 15 full buildings covering
+ * the entire 40x40 campus estate (5 columns x 3 rows with paved walkways between
+ * every building and 2-tile outer utility boulevards on z:0..1 and z:38..39).
+ */
 export const LAND_PARCELS: readonly LandParcelDef[] = [
+  // === INNER RING (adjacent to Main HQ) ===
   {
     id: 'east_datacenter',
     name: 'East Compute Wing',
     shortName: 'East Data Center',
+    district: 'East',
     tagline: '6×14 Dedicated GPU / Quantum Data Center Building',
     cost: 45_000,
     autoGrantedAtTier: 1,
-    minX: 21,
-    maxX: 26,
-    minZ: 11,
-    maxZ: 24,
+    minX: 26,
+    maxX: 31,
+    minZ: 13,
+    maxZ: 26,
     defaultFloor: 'server',
     role: 'datacenter',
   },
@@ -68,13 +90,14 @@ export const LAND_PARCELS: readonly LandParcelDef[] = [
     id: 'north_research',
     name: 'North Research Pavilion',
     shortName: 'North Lab Wing',
-    tagline: '12×7 Skylight AI Research & Alignment Building',
+    district: 'North',
+    tagline: '10×10 Skylight AI Research & Alignment Building',
     cost: 95_000,
     autoGrantedAtTier: 2,
-    minX: 8,
-    maxX: 19,
+    minX: 15,
+    maxX: 24,
     minZ: 2,
-    maxZ: 8,
+    maxZ: 11,
     defaultFloor: 'lab',
     role: 'research',
   },
@@ -82,26 +105,44 @@ export const LAND_PARCELS: readonly LandParcelDef[] = [
     id: 'west_annex',
     name: 'West Robotics & Exec Annex',
     shortName: 'West Annex',
+    district: 'West',
     tagline: '6×14 Executive Lab, Lounge & Compute Annex',
-    cost: 160_000,
+    cost: 150_000,
     autoGrantedAtTier: 3,
-    minX: 1,
-    maxX: 6,
-    minZ: 11,
-    maxZ: 24,
+    minX: 8,
+    maxX: 13,
+    minZ: 13,
+    maxZ: 26,
     defaultFloor: 'lab',
     role: 'annex',
   },
   {
+    id: 'south_plaza',
+    name: 'South AI Foundry & Hub',
+    shortName: 'South Hub',
+    district: 'South',
+    tagline: '10×9 Front-Plaza Developer Hub & Demo Center',
+    cost: 165_000,
+    minX: 15,
+    maxX: 24,
+    minZ: 28,
+    maxZ: 36,
+    defaultFloor: 'lab',
+    role: 'research',
+  },
+
+  // === INNER CORNERS ===
+  {
     id: 'ne_superpod',
     name: 'NE Frontier SuperPod Hall',
     shortName: 'NE Compute Hall',
-    tagline: '6×7 Ultra-Dense Frontier Supercomputer Vault',
-    cost: 260_000,
-    minX: 21,
-    maxX: 26,
+    district: 'North',
+    tagline: '6×10 Ultra-Dense Frontier Supercomputer Vault',
+    cost: 220_000,
+    minX: 26,
+    maxX: 31,
     minZ: 2,
-    maxZ: 8,
+    maxZ: 11,
     defaultFloor: 'server',
     role: 'datacenter',
   },
@@ -109,14 +150,131 @@ export const LAND_PARCELS: readonly LandParcelDef[] = [
     id: 'nw_innovation',
     name: 'NW Innovation & Studio Park',
     shortName: 'NW Studio Wing',
-    tagline: '6×7 Frontier Prototyping Studio & Lounge Hall',
-    cost: 220_000,
+    district: 'North',
+    tagline: '6×10 Frontier Prototyping Studio & Lounge Hall',
+    cost: 195_000,
+    minX: 8,
+    maxX: 13,
+    minZ: 2,
+    maxZ: 11,
+    defaultFloor: 'lounge',
+    role: 'research',
+  },
+  {
+    id: 'se_datacenter',
+    name: 'SE Cloud Inference Vault',
+    shortName: 'SE Inference Hall',
+    district: 'South',
+    tagline: '6×9 High-Throughput API Serving & GPU Center',
+    cost: 210_000,
+    minX: 26,
+    maxX: 31,
+    minZ: 28,
+    maxZ: 36,
+    defaultFloor: 'server',
+    role: 'datacenter',
+  },
+  {
+    id: 'sw_campus',
+    name: 'SW Talent & Startup Incubator',
+    shortName: 'SW Incubator',
+    district: 'South',
+    tagline: '6×9 Engineering Academy & Recruiting Wing',
+    cost: 185_000,
+    minX: 8,
+    maxX: 13,
+    minZ: 28,
+    maxZ: 36,
+    defaultFloor: 'lab',
+    role: 'annex',
+  },
+
+  // === OUTER EAST EXPANSION ESTATE ===
+  {
+    id: 'far_east_mega',
+    name: 'Far-East Hyperscale Megahall',
+    shortName: 'Far-East MegaDC',
+    district: 'East',
+    tagline: '6×14 Outer-Estate Exascale Compute Megahall',
+    cost: 340_000,
+    minX: 33,
+    maxX: 38,
+    minZ: 13,
+    maxZ: 26,
+    defaultFloor: 'server',
+    role: 'datacenter',
+  },
+  {
+    id: 'far_east_north',
+    name: 'Far-East Quantum Core Tower',
+    shortName: 'NE Quantum Tower',
+    district: 'East',
+    tagline: '6×10 Outer-Northeast Quantum & Cryo Vault',
+    cost: 390_000,
+    minX: 33,
+    maxX: 38,
+    minZ: 2,
+    maxZ: 11,
+    defaultFloor: 'server',
+    role: 'datacenter',
+  },
+  {
+    id: 'far_east_south',
+    name: 'Far-East Neural Grid Annex',
+    shortName: 'SE Neural Grid',
+    district: 'East',
+    tagline: '6×9 Outer-Southeast Edge Compute & Power Hub',
+    cost: 310_000,
+    minX: 33,
+    maxX: 38,
+    minZ: 28,
+    maxZ: 36,
+    defaultFloor: 'server',
+    role: 'datacenter',
+  },
+
+  // === OUTER WEST EXPANSION ESTATE ===
+  {
+    id: 'far_west_labs',
+    name: 'Far-West Bio-AI & Robotics Lab',
+    shortName: 'Far-West Labs',
+    district: 'West',
+    tagline: '6×14 Outer-West Frontier Science & Robotics Wing',
+    cost: 320_000,
+    minX: 1,
+    maxX: 6,
+    minZ: 13,
+    maxZ: 26,
+    defaultFloor: 'lab',
+    role: 'research',
+  },
+  {
+    id: 'far_west_north',
+    name: 'Far-West Alignment Observatory',
+    shortName: 'NW Observatory',
+    district: 'West',
+    tagline: '6×10 Outer-Northwest Safety & Theory Tower',
+    cost: 360_000,
     minX: 1,
     maxX: 6,
     minZ: 2,
-    maxZ: 8,
-    defaultFloor: 'lounge',
+    maxZ: 11,
+    defaultFloor: 'lab',
     role: 'research',
+  },
+  {
+    id: 'far_west_south',
+    name: 'Far-West Founder Commons',
+    shortName: 'SW Commons',
+    district: 'West',
+    tagline: '6×9 Outer-Southwest Lounge, Studio & Media Hall',
+    cost: 280_000,
+    minX: 1,
+    maxX: 6,
+    minZ: 28,
+    maxZ: 36,
+    defaultFloor: 'lounge',
+    role: 'annex',
   },
 ];
 
@@ -144,60 +302,60 @@ export const BUILDING_TIERS: readonly BuildingTierDef[] = [
   {
     tier: 0,
     name: 'Garage Startup',
-    tagline: '12×10 Main HQ Garage',
+    tagline: '10×10 Main HQ Garage',
     upgradeCost: 0,
-    minX: 8,
-    maxX: 19,
-    minZ: 11,
-    maxZ: 20,
-    serverSplitX: 16,
-    loungeMaxX: 10,
-    loungeMinZ: 18,
+    minX: 15,
+    maxX: 24,
+    minZ: 15,
+    maxZ: 24,
+    serverSplitX: 21,
+    loungeMaxX: 17,
+    loungeMinZ: 22,
   },
   {
     tier: 1,
     name: 'Innovation Loft',
-    tagline: '12×12 HQ + East Compute Building',
+    tagline: '10×12 HQ + East Compute Building',
     bonusBuildingLabel: '+ East Compute Wing',
     grantsParcelId: 'east_datacenter',
     upgradeCost: 42_000,
-    minX: 8,
-    maxX: 19,
-    minZ: 11,
-    maxZ: 22,
-    serverSplitX: 16,
-    loungeMaxX: 10,
-    loungeMinZ: 19,
+    minX: 15,
+    maxX: 24,
+    minZ: 14,
+    maxZ: 25,
+    serverSplitX: 21,
+    loungeMaxX: 17,
+    loungeMinZ: 23,
   },
   {
     tier: 2,
     name: 'AI Research Campus',
-    tagline: '12×14 HQ + North Research Pavilion',
+    tagline: '10×13 HQ + North Research Pavilion',
     bonusBuildingLabel: '+ North Research Pavilion',
     grantsParcelId: 'north_research',
     upgradeCost: 145_000,
-    minX: 8,
-    maxX: 19,
-    minZ: 10,
-    maxZ: 23,
-    serverSplitX: 16,
-    loungeMaxX: 10,
-    loungeMinZ: 20,
+    minX: 15,
+    maxX: 24,
+    minZ: 13,
+    maxZ: 25,
+    serverSplitX: 21,
+    loungeMaxX: 17,
+    loungeMinZ: 23,
   },
   {
     tier: 3,
     name: 'Frontier Mega-Campus',
-    tagline: '12×16 HQ + West Robotics Annex',
+    tagline: '10×14 HQ + West Robotics Annex',
     bonusBuildingLabel: '+ West Robotics Annex',
     grantsParcelId: 'west_annex',
     upgradeCost: 420_000,
-    minX: 8,
-    maxX: 19,
-    minZ: 10,
-    maxZ: 25,
-    serverSplitX: 16,
-    loungeMaxX: 10,
-    loungeMinZ: 22,
+    minX: 15,
+    maxX: 24,
+    minZ: 13,
+    maxZ: 26,
+    serverSplitX: 21,
+    loungeMaxX: 17,
+    loungeMinZ: 24,
   },
 ];
 
@@ -210,25 +368,44 @@ export function getNextBuildingTier(tier: BuildingTier): BuildingTierDef | null 
   return BUILDING_TIERS[tier + 1];
 }
 
+export function getBuildingStories(
+  state: Pick<GameState, 'buildingStories'>,
+  buildingId: string,
+): number {
+  const raw = state.buildingStories?.[buildingId] ?? 1;
+  return Math.max(1, Math.min(MAX_BUILDING_STORIES, Math.floor(raw)));
+}
+
+export function getMaxCampusStories(
+  state: Pick<GameState, 'buildingTier' | 'ownedLandIds' | 'buildingStories'>,
+): number {
+  let max = getBuildingStories(state, 'main_hq');
+  for (const id of state.ownedLandIds ?? []) {
+    max = Math.max(max, getBuildingStories(state, id));
+  }
+  return max;
+}
+
 /**
- * Returns every currently constructed building footprint (Main HQ + all owned Land Parcel buildings).
- * Used both by simulation placement and by LabScene.ts to build separate 3D architectural shells!
+ * Returns every currently constructed building footprint (Main HQ + all owned Land Parcels)
+ * along with its current multi-story height (1..6F).
  */
 export function getActiveCampusBuildings(
-  state: Pick<GameState, 'buildingTier' | 'ownedLandIds'>,
+  state: Pick<GameState, 'buildingTier' | 'ownedLandIds' | 'buildingStories'>,
 ): BuildingFootprint[] {
   const tierDef = getBuildingTierDef(state.buildingTier ?? 0);
   const owned = Array.isArray(state.ownedLandIds) ? state.ownedLandIds : [];
   const buildings: BuildingFootprint[] = [
     {
       id: 'main_hq',
-      name: tierDef.name,
+      name: `Main HQ (${tierDef.name})`,
       minX: tierDef.minX,
       maxX: tierDef.maxX,
       minZ: tierDef.minZ,
       maxZ: tierDef.maxZ,
       defaultFloor: 'garage',
       role: 'hq',
+      stories: getBuildingStories(state, 'main_hq'),
     },
   ];
 
@@ -243,10 +420,115 @@ export function getActiveCampusBuildings(
         maxZ: parcel.maxZ,
         defaultFloor: parcel.defaultFloor,
         role: parcel.role,
+        stories: getBuildingStories(state, parcel.id),
       });
     }
   }
   return buildings;
+}
+
+/**
+ * Finds which active building contains tile (gx, gz), or null if outdoor/walkway.
+ */
+export function getBuildingAtTile(
+  state: Pick<GameState, 'buildingTier' | 'ownedLandIds' | 'buildingStories'>,
+  gx: number,
+  gz: number,
+): BuildingFootprint | null {
+  const buildings = getActiveCampusBuildings(state);
+  for (const b of buildings) {
+    if (gx >= b.minX && gx <= b.maxX && gz >= b.minZ && gz <= b.maxZ) {
+      return b;
+    }
+  }
+  return null;
+}
+
+export function getNextStoryCost(currentStories: number): number {
+  if (currentStories >= MAX_BUILDING_STORIES) return 0;
+  return STORY_UPGRADE_COSTS[currentStories] ?? 640_000;
+}
+
+export function canAddBuildingStory(
+  state: GameState,
+  buildingId: string,
+): { ok: boolean; reason?: string; currentStories: number; nextStories: number; cost: number } {
+  const isOwned =
+    buildingId === 'main_hq' ||
+    (Array.isArray(state.ownedLandIds) && state.ownedLandIds.includes(buildingId as LandParcelId));
+  const currentStories = getBuildingStories(state, buildingId);
+  const nextStories = Math.min(MAX_BUILDING_STORIES, currentStories + 1);
+  const cost = state.cheatFreeBuild ? 0 : getNextStoryCost(currentStories);
+
+  if (!isOwned) {
+    return { ok: false, reason: 'Buy land parcel first', currentStories, nextStories, cost };
+  }
+  if (currentStories >= MAX_BUILDING_STORIES) {
+    return { ok: false, reason: `Max ${MAX_BUILDING_STORIES}F reached`, currentStories, nextStories, cost: 0 };
+  }
+  if (state.cash < cost) {
+    return { ok: false, reason: `Need $${cost.toLocaleString()}`, currentStories, nextStories, cost };
+  }
+  return { ok: true, currentStories, nextStories, cost };
+}
+
+/**
+ * Builds an additional vertical story (+1F, up to 6F) on any constructed building,
+ * dramatically expanding its 3D tower height AND multiplying its indoor workspace & compute capacity!
+ */
+export function addBuildingStory(
+  state: GameState,
+  buildingId: string,
+  opts?: { free?: boolean; silent?: boolean },
+): { ok: boolean; reason?: string; stories?: number } {
+  const check = canAddBuildingStory(state, buildingId);
+  if (!check.ok && !(opts?.free && check.currentStories < MAX_BUILDING_STORIES && check.reason?.startsWith('Need'))) {
+    return { ok: false, reason: check.reason };
+  }
+
+  const free = Boolean(opts?.free || state.cheatFreeBuild);
+  if (!free) {
+    state.cash -= check.cost;
+  }
+
+  if (!state.buildingStories) state.buildingStories = { main_hq: 1 };
+  const newStories = check.currentStories + 1;
+  state.buildingStories[buildingId] = newStories;
+
+  const bName =
+    buildingId === 'main_hq'
+      ? 'Main HQ'
+      : LAND_PARCEL_BY_ID[buildingId as LandParcelId]?.name ?? buildingId;
+
+  if (!opts?.silent) {
+    pushNotification(
+      state,
+      `Constructed Floor ${newStories}F on ${bName}! Vertical workspaces & compute capacity expanded!`,
+      'good',
+    );
+  }
+  return { ok: true, stories: newStories };
+}
+
+/**
+ * Upgrades EVERY currently constructed campus building to MAX 6F Skyscrapers!
+ */
+export function upgradeAllBuildingsToMaxStories(state: GameState): number {
+  if (!state.buildingStories) state.buildingStories = { main_hq: 1 };
+  const buildings = getActiveCampusBuildings(state);
+  let upgraded = 0;
+  for (const b of buildings) {
+    if (b.stories < MAX_BUILDING_STORIES) {
+      state.buildingStories[b.id] = MAX_BUILDING_STORIES;
+      upgraded++;
+    }
+  }
+  pushNotification(
+    state,
+    `ALL ${buildings.length} CAMPUS BUILDINGS UPGRADED TO ${MAX_BUILDING_STORIES}F SKYSCRAPERS!`,
+    'good',
+  );
+  return upgraded;
 }
 
 export function applyParcelFloorPlan(state: GameState, parcel: LandParcelDef): void {
@@ -254,12 +536,14 @@ export function applyParcelFloorPlan(state: GameState, parcel: LandParcelDef): v
   for (let z = parcel.minZ; z <= parcel.maxZ; z++) {
     for (let x = parcel.minX; x <= parcel.maxX; x++) {
       let f: FloorType = parcel.defaultFloor;
-      if (parcel.id === 'west_annex' && z >= parcel.maxZ - 3) {
+      if ((parcel.id === 'west_annex' || parcel.id === 'sw_campus') && z >= parcel.maxZ - 2) {
         f = 'lounge';
       } else if (parcel.id === 'north_research' && (x === parcel.minX || x === parcel.maxX)) {
         f = 'garage';
-      } else if (parcel.id === 'nw_innovation' && z <= parcel.minZ + 3) {
+      } else if ((parcel.id === 'nw_innovation' || parcel.id === 'far_west_south') && z <= parcel.minZ + 4) {
         f = 'lab';
+      } else if (parcel.id === 'south_plaza' && z >= parcel.maxZ - 2) {
+        f = 'lounge';
       }
       state.floors[floorIndex(x, z, w)] = f;
     }
@@ -284,7 +568,6 @@ export function applyTierFloorPlan(state: GameState, tier: BuildingTier): void {
     }
   }
 
-  // Ensure every owned expansion parcel keeps its indoor floor plan painted cleanly
   const owned = Array.isArray(state.ownedLandIds) ? state.ownedLandIds : [];
   for (const parcel of LAND_PARCELS) {
     if (owned.includes(parcel.id)) {
@@ -432,7 +715,6 @@ function tryAutoPlace(
     itemId === 'cryo_spire';
 
   if (allowOutdoor && preferredFloors.includes('grass')) {
-    // Prefer north/south 2-tile-deep utility boulevards first so 2x2 units stay clean outside buildings!
     if (
       tryAutoPlaceInBounds(
         state,
@@ -464,7 +746,6 @@ function tryAutoPlace(
     );
   }
 
-  // Search across Main HQ + all owned campus buildings!
   const buildings = getActiveCampusBuildings(state);
   for (const b of buildings) {
     if (
@@ -495,9 +776,6 @@ function tryAutoPlace(
   return false;
 }
 
-/**
- * Automatically ensures an open desk slot exists before hiring a new team member.
- */
 export function autoEnsureDeskForHire(
   state: GameState,
   opts?: { free?: boolean },
@@ -539,7 +817,7 @@ export function autoEnsureDeskForHire(
  */
 export function autoFurnishLab(
   state: GameState,
-  opts?: { free?: boolean },
+  opts?: { free?: boolean; silent?: boolean },
 ): { placedCount: number } {
   let placedCount = 0;
   const tier = state.buildingTier;
@@ -548,11 +826,14 @@ export function autoFurnishLab(
 
   const countById = (id: string) => state.items.filter((i) => i.itemId === id).length;
 
-  // 1. Ensure enough desks for staff + headroom scaling with campus size
-  const targetDesks = Math.max(state.staff.length + 2, 3 + tier * 3 + Math.min(8, (buildingCount - 1) * 2));
+  // 1. Ensure enough desks for staff + headroom scaling across all constructed buildings
+  const targetDesks = Math.max(
+    state.staff.length + 2,
+    3 + tier * 3 + Math.min(24, (buildingCount - 1) * 2),
+  );
   let res = computeResources(state);
   let guard = 0;
-  while (res.deskSlots < targetDesks && guard < 16) {
+  while (res.deskSlots < targetDesks && guard < 24) {
     guard++;
     const deskRes = autoEnsureDeskForHire(state, { free });
     if (!deskRes.ok) break;
@@ -560,7 +841,7 @@ export function autoFurnishLab(
     res = computeResources(state);
   }
 
-  // 2. Cozy & research amenities scaled across campus buildings
+  // 2. Amenities scaled cleanly across campus buildings
   const wantCoffee = 1 + Math.floor(buildingCount / 2);
   while (countById('coffee_machine') < wantCoffee) {
     if (!tryAutoPlace(state, 'coffee_machine', ['lounge', 'garage'], { free })) break;
@@ -585,10 +866,10 @@ export function autoFurnishLab(
     placedCount++;
   }
 
-  // 3. Auto-balance power & cooling if currently strained
+  // 3. Auto-balance power & cooling if currently strained (skip when unlimited power is active)
   res = computeResources(state);
   let infraGuard = 0;
-  while (res.isUnderpowered && infraGuard < 8) {
+  while (res.isUnderpowered && infraGuard < 10) {
     infraGuard++;
     const useFusion =
       (free || isItemUnlocked(state, 'fusion_reactor')) &&
@@ -604,7 +885,7 @@ export function autoFurnishLab(
   }
 
   infraGuard = 0;
-  while (res.isOverheated && infraGuard < 8) {
+  while (res.isOverheated && infraGuard < 10) {
     infraGuard++;
     const useCryo =
       (free || isItemUnlocked(state, 'cryo_spire')) &&
@@ -619,7 +900,7 @@ export function autoFurnishLab(
     res = computeResources(state);
   }
 
-  if (placedCount > 0) {
+  if (placedCount > 0 && !opts?.silent) {
     pushNotification(
       state,
       `Auto-Furnish neatly installed ${placedCount} campus upgrade${placedCount === 1 ? '' : 's'}.`,
@@ -653,9 +934,11 @@ export function buyLandParcel(
   }
 
   state.ownedLandIds.push(parcelId);
+  if (!state.buildingStories) state.buildingStories = { main_hq: 1 };
+  if (!state.buildingStories[parcelId]) state.buildingStories[parcelId] = 1;
   applyParcelFloorPlan(state, parcel);
 
-  // Safely relocate any outdoor utilities standing inside the newly constructed parcel
+  // Relocate any outdoor utilities standing inside the newly constructed parcel
   for (const item of state.items) {
     const inside =
       item.gx >= parcel.minX &&
@@ -688,10 +971,6 @@ export function buyLandParcel(
   return { ok: true, parcel };
 }
 
-/**
- * Upgrades Main HQ to the next Tier AND automatically constructs a brand-new
- * campus building on every tier progress!
- */
 export function upgradeBuildingTier(
   state: GameState,
   opts?: { free?: boolean },
@@ -709,8 +988,15 @@ export function upgradeBuildingTier(
   }
 
   state.buildingTier = next.tier;
+  if (!state.buildingStories) state.buildingStories = { main_hq: 1 };
+  // Upgrading HQ Tier also adds a free bonus floor up to tier+1!
+  state.buildingStories.main_hq = Math.max(state.buildingStories.main_hq ?? 1, next.tier + 1);
+
   if (next.grantsParcelId && !state.ownedLandIds.includes(next.grantsParcelId)) {
     state.ownedLandIds.push(next.grantsParcelId);
+    if (!state.buildingStories[next.grantsParcelId]) {
+      state.buildingStories[next.grantsParcelId] = 1;
+    }
   }
   applyTierFloorPlan(state, next.tier);
 
@@ -722,7 +1008,7 @@ export function upgradeBuildingTier(
   pushNotification(
     state,
     parcelName
-      ? `HQ Upgraded to ${next.name} + NEW BUILDING: ${parcelName} constructed!`
+      ? `HQ Upgraded to ${next.name} (${state.buildingStories.main_hq}F) + NEW BUILDING: ${parcelName}!`
       : `HQ Upgraded to ${next.name} (${next.tagline})!`,
     'good',
   );
@@ -730,13 +1016,17 @@ export function upgradeBuildingTier(
 }
 
 /**
- * Unlocks all 5 expansion land parcels & Tier 4 Main HQ without wiping player items.
+ * Unlocks ALL 14 expansion land parcels (15 total buildings!) & Tier 4 Main HQ without wiping items.
  */
 export function unlockAllCampusLand(state: GameState): void {
   state.buildingTier = 3;
+  if (!state.buildingStories) state.buildingStories = { main_hq: 1 };
   for (const p of LAND_PARCELS) {
     if (!state.ownedLandIds.includes(p.id)) {
       state.ownedLandIds.push(p.id);
+    }
+    if (!state.buildingStories[p.id]) {
+      state.buildingStories[p.id] = 1;
     }
   }
   applyTierFloorPlan(state, 3);
@@ -745,20 +1035,26 @@ export function unlockAllCampusLand(state: GameState): void {
   }
   pushNotification(
     state,
-    'FULL 6-BUILDING AI CAMPUS UNLOCKED! All expansion land parcels & wings constructed!',
+    'ENTIRE 15-BUILDING AI ESTATE UNLOCKED! All 14 expansion land parcels constructed!',
     'good',
   );
 }
 
 /**
  * Founder Vault Ultimate Cheat:
- * Constructs ALL 6 Campus Buildings (Tier 4 Main HQ + East Data Center + North Research Pavilion
- * + West Robotics Annex + NE Frontier SuperPod Hall + NW Innovation Park) and fills them with
- * era-matched SuperPods / Quantum Cores / Matrioshka Singularity Cores, workstations & balanced power/cooling!
+ * Constructs ALL 15 Campus Buildings across the entire 40x40 estate, upgrades EVERY
+ * building into a towering 6-Story (6F) Skyscraper, and populates every Data Center &
+ * Research Wing with era-matched clusters, desks, lounges, and balanced power/cooling!
  */
 export function applyMaxHyperscaleHQ(state: GameState): void {
   state.buildingTier = 3;
   state.ownedLandIds = LAND_PARCELS.map((p) => p.id);
+  state.buildingStories = { main_hq: MAX_BUILDING_STORIES };
+  for (const p of LAND_PARCELS) {
+    // Architectural skyline variation: main HQ + core towers at 6F, data centers at 4F-5F, outer wings 4F-6F
+    // Wait: user requested max building stories -> make ALL 15 buildings full MAX 6F!
+    state.buildingStories[p.id] = MAX_BUILDING_STORIES;
+  }
   applyTierFloorPlan(state, 3);
 
   state.items = [];
@@ -776,135 +1072,86 @@ export function applyMaxHyperscaleHQ(state: GameState): void {
   const powerType = state.eraIndex >= 5 ? 'fusion_reactor' : 'substation';
   const coolType = state.eraIndex >= 5 ? 'cryo_spire' : 'cooling_tower';
 
-  const layout: Array<{ itemId: string; gx: number; gz: number; rot: RotationQuarter }> = [
-    // === BUILDING 1: MAIN HQ (x: 8..19, z: 10..25) — Command Center, Research Floor & Compute Spine ===
-    // Research bays
-    { itemId: deskType, gx: 9, gz: 12, rot: 0 },
-    { itemId: deskType, gx: 12, gz: 12, rot: 0 },
-    { itemId: deskType, gx: 9, gz: 14, rot: 0 },
-    { itemId: deskType, gx: 12, gz: 14, rot: 0 },
-    { itemId: deskType, gx: 9, gz: 16, rot: 0 },
-    { itemId: deskType, gx: 12, gz: 16, rot: 0 },
-    { itemId: deskType, gx: 9, gz: 18, rot: 0 },
-    { itemId: deskType, gx: 12, gz: 18, rot: 0 },
-    // Whiteboards & archive shelves
-    { itemId: 'whiteboard', gx: 10, gz: 10, rot: 0 },
-    { itemId: 'whiteboard', gx: 13, gz: 10, rot: 0 },
-    { itemId: 'bookshelf_posters', gx: 8, gz: 13, rot: 1 },
-    { itemId: 'bookshelf_posters', gx: 8, gz: 16, rot: 1 },
-    // HQ Server Wing (x: 16..19)
-    { itemId: flagshipCore, gx: 16, gz: 11, rot: 0 },
-    { itemId: flagshipCore, gx: 16, gz: 14, rot: 0 },
-    { itemId: flagshipCore, gx: 16, gz: 17, rot: 0 },
-    { itemId: flagshipCore, gx: 16, gz: 20, rot: 0 },
-    { itemId: 'ac_unit', gx: 18, gz: 23, rot: 0 },
-    // HQ Lounge (x: 8..10, z: 22..25)
-    { itemId: 'coffee_machine', gx: 9, gz: 22, rot: 0 },
-    { itemId: 'potted_plant', gx: 8, gz: 24, rot: 0 },
-    { itemId: 'potted_plant', gx: 11, gz: 24, rot: 0 },
-
-    // === BUILDING 2: EAST COMPUTE WING / DATA CENTER (x: 21..26, z: 11..24) ===
-    { itemId: flagshipCore, gx: 21, gz: 11, rot: 0 },
-    { itemId: flagshipCore, gx: 24, gz: 11, rot: 0 },
-    { itemId: flagshipCore, gx: 21, gz: 14, rot: 0 },
-    { itemId: flagshipCore, gx: 24, gz: 14, rot: 0 },
-    { itemId: flagshipCore, gx: 21, gz: 17, rot: 0 },
-    { itemId: flagshipCore, gx: 24, gz: 17, rot: 0 },
-    { itemId: flagshipCore, gx: 21, gz: 20, rot: 0 },
-    { itemId: flagshipCore, gx: 24, gz: 20, rot: 0 },
-    { itemId: 'server_rack', gx: 21, gz: 23, rot: 0 },
-    { itemId: 'server_rack', gx: 23, gz: 23, rot: 0 },
-    { itemId: 'server_rack', gx: 25, gz: 23, rot: 0 },
-
-    // === BUILDING 3: NORTH RESEARCH PAVILION (x: 8..19, z: 2..8) ===
-    { itemId: deskType, gx: 9, gz: 4, rot: 0 },
-    { itemId: deskType, gx: 12, gz: 4, rot: 0 },
-    { itemId: deskType, gx: 15, gz: 4, rot: 0 },
-    { itemId: deskType, gx: 9, gz: 6, rot: 0 },
-    { itemId: deskType, gx: 12, gz: 6, rot: 0 },
-    { itemId: deskType, gx: 15, gz: 6, rot: 0 },
-    { itemId: 'whiteboard', gx: 10, gz: 2, rot: 0 },
-    { itemId: 'whiteboard', gx: 14, gz: 2, rot: 0 },
-    { itemId: 'bookshelf_posters', gx: 18, gz: 3, rot: 3 },
-    { itemId: 'potted_plant', gx: 8, gz: 7, rot: 0 },
-    { itemId: 'potted_plant', gx: 19, gz: 7, rot: 0 },
-
-    // === BUILDING 4: WEST ROBOTICS & EXEC ANNEX (x: 1..6, z: 11..24) ===
-    { itemId: deskType, gx: 2, gz: 12, rot: 0 },
-    { itemId: deskType, gx: 2, gz: 15, rot: 0 },
-    { itemId: deskType, gx: 2, gz: 18, rot: 0 },
-    { itemId: 'whiteboard', gx: 3, gz: 11, rot: 0 },
-    { itemId: 'bookshelf_posters', gx: 1, gz: 14, rot: 1 },
-    { itemId: 'coffee_machine', gx: 2, gz: 21, rot: 0 },
-    { itemId: 'coffee_machine', gx: 4, gz: 21, rot: 0 },
-    { itemId: 'potted_plant', gx: 1, gz: 23, rot: 0 },
-    { itemId: 'potted_plant', gx: 5, gz: 23, rot: 0 },
-
-    // === BUILDING 5: NE FRONTIER SUPERPOD HALL (x: 21..26, z: 2..8) ===
-    { itemId: flagshipCore, gx: 21, gz: 2, rot: 0 },
-    { itemId: flagshipCore, gx: 24, gz: 2, rot: 0 },
-    { itemId: flagshipCore, gx: 21, gz: 5, rot: 0 },
-    { itemId: flagshipCore, gx: 24, gz: 5, rot: 0 },
-    { itemId: 'ac_unit', gx: 22, gz: 8, rot: 0 },
-    { itemId: 'ac_unit', gx: 25, gz: 8, rot: 0 },
-
-    // === BUILDING 6: NW INNOVATION STUDIO (x: 1..6, z: 2..8) ===
-    { itemId: deskType, gx: 2, gz: 3, rot: 0 },
-    { itemId: deskType, gx: 2, gz: 5, rot: 0 },
-    { itemId: 'whiteboard', gx: 3, gz: 2, rot: 0 },
-    { itemId: 'coffee_machine', gx: 2, gz: 7, rot: 0 },
-    { itemId: 'potted_plant', gx: 5, gz: 7, rot: 0 },
-
-    // === NORTH & SOUTH UTILITY BOULEVARDS (z: 0..1 and z: 26..27) ===
-    { itemId: powerType, gx: 2, gz: 0, rot: 0 },
-    { itemId: powerType, gx: 5, gz: 0, rot: 0 },
-    { itemId: powerType, gx: 9, gz: 0, rot: 0 },
-    { itemId: powerType, gx: 12, gz: 0, rot: 0 },
-    { itemId: powerType, gx: 15, gz: 0, rot: 0 },
-    { itemId: powerType, gx: 18, gz: 0, rot: 0 },
-    { itemId: powerType, gx: 21, gz: 0, rot: 0 },
-    { itemId: powerType, gx: 24, gz: 0, rot: 0 },
-
-    { itemId: coolType, gx: 1, gz: 26, rot: 0 },
-    { itemId: coolType, gx: 4, gz: 26, rot: 0 },
-    { itemId: coolType, gx: 7, gz: 26, rot: 0 },
-    { itemId: coolType, gx: 10, gz: 26, rot: 0 },
-    { itemId: coolType, gx: 17, gz: 26, rot: 0 },
-    { itemId: coolType, gx: 20, gz: 26, rot: 0 },
-    { itemId: coolType, gx: 23, gz: 26, rot: 0 },
-    { itemId: coolType, gx: 25, gz: 26, rot: 0 },
-  ];
-
+  const layout: Array<{ itemId: string; gx: number; gz: number; rot: RotationQuarter }> = [];
   const occupied = new Set<string>();
-  for (const p of layout) {
-    const [fw, fd] = getRotatedFootprint(p.itemId, p.rot);
-    let fits = true;
-    for (let dx = 0; dx < fw && fits; dx++) {
-      for (let dz = 0; dz < fd && fits; dz++) {
-        const tx = p.gx + dx;
-        const tz = p.gz + dz;
-        if (tx < 0 || tz < 0 || tx >= state.gridWidth || tz >= state.gridHeight) {
-          fits = false;
-        } else if (occupied.has(`${tx},${tz}`)) {
-          fits = false;
-        }
-      }
-    }
-    if (!fits) continue;
+
+  const tryStamp = (itemId: string, gx: number, gz: number, rot: RotationQuarter = 0) => {
+    const [fw, fd] = getRotatedFootprint(itemId, rot);
     for (let dx = 0; dx < fw; dx++) {
       for (let dz = 0; dz < fd; dz++) {
-        occupied.add(`${p.gx + dx},${p.gz + dz}`);
+        const tx = gx + dx;
+        const tz = gz + dz;
+        if (tx < 0 || tz < 0 || tx >= state.gridWidth || tz >= state.gridHeight) return;
+        if (occupied.has(`${tx},${tz}`)) return;
       }
     }
+    for (let dx = 0; dx < fw; dx++) {
+      for (let dz = 0; dz < fd; dz++) {
+        occupied.add(`${gx + dx},${gz + dz}`);
+      }
+    }
+    layout.push({ itemId, gx, gz, rot });
+  };
+
+  // Populate EVERY single one of the 15 buildings cleanly by architectural role!
+  const buildings = getActiveCampusBuildings(state);
+  for (const b of buildings) {
+    if (b.role === 'hq') {
+      // Main HQ (x: 15..24, z: 13..26): Research Bays + Compute Spine + Lounge
+      for (const gz of [15, 17, 19, 21]) {
+        tryStamp(deskType, b.minX + 1, gz, 0);
+        tryStamp(deskType, b.minX + 3, gz, 0);
+      }
+      tryStamp('whiteboard', b.minX + 2, b.minZ, 0);
+      tryStamp('whiteboard', b.minX + 5, b.minZ, 0);
+      tryStamp('bookshelf_posters', b.minX, b.minZ + 3, 1);
+      tryStamp(flagshipCore, b.maxX - 2, b.minZ + 1, 0);
+      tryStamp(flagshipCore, b.maxX - 2, b.minZ + 4, 0);
+      tryStamp(flagshipCore, b.maxX - 2, b.minZ + 7, 0);
+      tryStamp('coffee_machine', b.minX + 1, b.maxZ - 1, 0);
+      tryStamp('potted_plant', b.minX, b.maxZ, 0);
+      tryStamp('potted_plant', b.maxX, b.maxZ, 0);
+    } else if (b.role === 'datacenter') {
+      // Dedicated Data Center Towers: rows of flagship 3x2 SuperPod/Quantum/Singularity clusters
+      for (let gz = b.minZ; gz <= b.maxZ - 2; gz += 3) {
+        tryStamp(flagshipCore, b.minX, gz, 0);
+        tryStamp(flagshipCore, b.minX + 3, gz, 0);
+      }
+      tryStamp('server_rack', b.minX + 1, b.maxZ, 0);
+      tryStamp('ac_unit', b.maxX - 1, b.maxZ, 0);
+    } else {
+      // Research & Annex Towers: spacious rows of dual/holo workstations + whiteboards + coffee lounge
+      for (let gz = b.minZ + 2; gz <= b.maxZ - 2; gz += 2) {
+        for (let gx = b.minX + 1; gx <= b.maxX - 2; gx += 3) {
+          tryStamp(deskType, gx, gz, 0);
+        }
+      }
+      tryStamp('whiteboard', b.minX + 2, b.minZ, 0);
+      tryStamp('bookshelf_posters', b.minX, b.minZ + 1, 1);
+      tryStamp('coffee_machine', b.minX + 1, b.maxZ - 1, 0);
+      tryStamp('potted_plant', b.maxX, b.maxZ, 0);
+    }
+  }
+
+  // North & South Outdoor Utility Boulevards (z: 0..1 and z: 38..39)
+  for (let gx = 1; gx <= state.gridWidth - 3; gx += 3) {
+    tryStamp(powerType, gx, 0, 0);
+    // Leave main driveway opening clear at x: 18..21 on south edge
+    if (gx < 17 || gx > 21) {
+      tryStamp(coolType, gx, state.gridHeight - 2, 0);
+    }
+  }
+
+  for (const p of layout) {
     forcePlaceItem(state, p.itemId, p.gx, p.gz, p.rot);
   }
 
-  state.extraGridPowerContracts = Math.max(state.extraGridPowerContracts, 60);
+  state.extraGridPowerContracts = Math.max(state.extraGridPowerContracts, 240);
 
   // Guarantee zero thermal throttling & zero power deficit across every Era (2010..2100)
   let balanceGuard = 0;
   let postRes = computeResources(state);
-  while (postRes.isOverheated && balanceGuard < 24) {
+  while (postRes.isOverheated && balanceGuard < 32) {
     balanceGuard++;
     const placedChiller =
       tryAutoPlace(state, coolType, ['grass', 'server'], { free: true }) ||
@@ -913,9 +1160,9 @@ export function applyMaxHyperscaleHQ(state: GameState): void {
     if (!placedChiller) break;
     postRes = computeResources(state);
   }
-  while (postRes.isUnderpowered && balanceGuard < 48) {
+  while (postRes.isUnderpowered && balanceGuard < 64) {
     balanceGuard++;
-    state.extraGridPowerContracts += 15;
+    state.extraGridPowerContracts += 40;
     postRes = computeResources(state);
   }
 
@@ -935,8 +1182,8 @@ export function applyMaxHyperscaleHQ(state: GameState): void {
   pushNotification(
     state,
     state.eraIndex >= 6
-      ? '2100 SINGULARITY 6-BUILDING MEGA-CAMPUS ONLINE! 16 Matrioshka Cores & Holo-Labs deployed!'
-      : 'FRONTIER 6-BUILDING MEGA-CAMPUS BUILT! All land parcels & SuperPod Data Centers online!',
+      ? '2100 SINGULARITY 15-BUILDING 6F SKYLINE ONLINE! All 15 towers & Matrioshka Cores deployed!'
+      : '15-BUILDING 6F MEGA-CAMPUS BUILT! All 14 land parcels & 6-story towers online!',
     'good',
   );
 }

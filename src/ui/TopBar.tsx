@@ -8,6 +8,7 @@
 
 import { useRef } from 'react';
 import { ERAS } from '../data/techs';
+import { getMaxCampusStories, LAND_PARCELS } from '../sim/facility';
 import { useGameStore, useResourceSnapshot } from '../store/useGameStore';
 import { PixelIcon } from './PixelIcons';
 
@@ -58,6 +59,9 @@ export function TopBar() {
   const netLabel = formatCompactNet(res.netPerSecond);
   const monthLabel = MONTHS[(game.month - 1) % 12];
   const isNight = game.timeOfDay < 0.22 || game.timeOfDay > 0.78;
+  const totalBuildings = 1 + (game.ownedLandIds?.length ?? 0);
+  const maxBuildings = 1 + LAND_PARCELS.length;
+  const maxStories = getMaxCampusStories(game);
 
   return (
     <header
@@ -68,8 +72,8 @@ export function TopBar() {
       <div className="flex items-center gap-2 sm:gap-3 md:gap-4 min-w-0 overflow-hidden">
         {/* Custom AI Lab Name (desktop lg+ only so mobile landscape stays ultra-spacious) */}
         <div
-          className="hidden lg:flex flex-col leading-none shrink-0 max-w-[156px]"
-          title={`${game.labName} · ${1 + (game.ownedLandIds?.length ?? 0)}/6 Campus Buildings`}
+          className="hidden lg:flex flex-col leading-none shrink-0 max-w-[164px]"
+          title={`${game.labName} · ${totalBuildings}/${maxBuildings} Campus Buildings · Max ${maxStories}F`}
         >
           <div
             className="font-pixel-display text-xs text-[#faf7eb] truncate"
@@ -77,8 +81,11 @@ export function TopBar() {
           >
             {game.labName}
           </div>
-          <div className="text-[9px] text-[#8de4ff] tabular-nums mt-0.5">
-            {1 + (game.ownedLandIds?.length ?? 0)}/6 Bldgs
+          <div
+            className="text-[9px] text-[#8de4ff] tabular-nums mt-0.5"
+            data-testid="hud-buildings"
+          >
+            {totalBuildings}/{maxBuildings} Bldgs · {maxStories}F
           </div>
         </div>
 
@@ -108,8 +115,13 @@ export function TopBar() {
           <PixelIcon name="compute" size={15} />
           <div className="leading-none">
             <div className="text-[8px] sm:text-[10px] [@media(max-height:500px)]:text-[8px] text-[#8c96ab] uppercase tracking-wider">TF</div>
-            <div className="font-pixel-display text-[10px] sm:text-xs [@media(max-height:500px)]:text-[10px] text-[#8de4ff] tabular-nums mt-0.5" data-testid="hud-compute">
-              {res.computeUsed}/{res.computeTotal}
+            <div
+              className={`font-pixel-display text-[10px] sm:text-xs [@media(max-height:500px)]:text-[10px] tabular-nums mt-0.5 ${
+                res.unlimitedCompute ? 'text-[#8ce063]' : 'text-[#8de4ff]'
+              }`}
+              data-testid="hud-compute"
+            >
+              {res.unlimitedCompute ? '∞ TF' : `${res.computeUsed}/${res.computeTotal}`}
             </div>
           </div>
         </div>
@@ -121,10 +133,15 @@ export function TopBar() {
             <div className="text-[8px] sm:text-[10px] [@media(max-height:500px)]:text-[8px] text-[#8c96ab] uppercase tracking-wider">Pwr</div>
             <div
               className={`font-pixel-display text-[10px] sm:text-xs [@media(max-height:500px)]:text-[10px] tabular-nums mt-0.5 ${
-                res.isUnderpowered ? 'text-[#e0534f]' : 'text-[#ffe478]'
+                res.unlimitedPower
+                  ? 'text-[#8ce063]'
+                  : res.isUnderpowered
+                    ? 'text-[#e0534f]'
+                    : 'text-[#ffe478]'
               }`}
+              data-testid="hud-power"
             >
-              {res.powerDemand}/{res.powerSupply}
+              {res.unlimitedPower ? '∞ kW' : `${res.powerDemand}/${res.powerSupply}`}
             </div>
           </div>
         </div>
@@ -136,10 +153,14 @@ export function TopBar() {
             <div className="text-[10px] text-[#8c96ab] uppercase tracking-wider">Thermal</div>
             <div
               className={`font-pixel-display text-xs tabular-nums mt-0.5 ${
-                res.isOverheated ? 'text-[#e0534f]' : 'text-[#8de4ff]'
+                res.unlimitedPower
+                  ? 'text-[#8ce063]'
+                  : res.isOverheated
+                    ? 'text-[#e0534f]'
+                    : 'text-[#8de4ff]'
               }`}
             >
-              {res.heatLoad}/{res.coolingSupply}
+              {res.unlimitedPower ? '∞' : `${res.heatLoad}/${res.coolingSupply}`}
             </div>
           </div>
         </div>

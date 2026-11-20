@@ -4,29 +4,40 @@ import assert from 'node:assert/strict';
 import { createInitialState, deserializeSave, sanitizeLabName, serializeSave } from './save';
 import { canPlaceItem, movePlacedItem, placeItem, sellPlacedItem } from './grid';
 import { computeResources, raiseFundingRound, unlockTech } from './economy';
-import { hireCandidate, fireStaff } from './staffSim';
-import { acquireDataset, maxAllTrainedModels, shipModelAsProduct, startTrainingJob } from './training';
+import { hireCandidate, fireStaff, fillCampusWithGeniuses } from './staffSim';
+import {
+  acquireDataset,
+  getMaxConcurrentTrainingJobs,
+  maxAllTrainedModels,
+  shipModelAsProduct,
+  startTrainingJob,
+} from './training';
 import { calculateOfflineProgress, resolveActiveEvent, stepSimulation, triggerRandomEventNow } from './engine';
 import {
+  addBuildingStory,
   applyMaxHyperscaleHQ,
   autoFurnishLab,
   buyLandParcel,
   getActiveCampusBuildings,
+  getBuildingStories,
+  MAX_BUILDING_STORIES,
   unlockAllCampusLand,
+  upgradeAllBuildingsToMaxStories,
   upgradeBuildingTier,
 } from './facility';
 import { ERAS, TECH_NODES } from '../data/techs';
 import { DATASETS } from '../data/datasets';
 
-test('initial state boots in 2010 on 28x28 campus with custom lab name, compute, desks, and starter staff', () => {
+test('initial state boots in 2010 on 40x40 campus with custom lab name, 1F HQ, compute, desks, and starter staff', () => {
   const state = createInitialState(1_000_000, '  Hyperion   AI Labs  ');
   assert.equal(state.labName, 'Hyperion AI Labs');
   assert.equal(sanitizeLabName('   '), 'Garage Tensor Works');
   assert.equal(state.year, 2010);
   assert.equal(state.eraIndex, 0);
   assert.equal(state.buildingTier, 0);
-  assert.equal(state.gridWidth, 28);
-  assert.equal(state.gridHeight, 28);
+  assert.equal(state.gridWidth, 40);
+  assert.equal(state.gridHeight, 40);
+  assert.equal(getBuildingStories(state, 'main_hq'), 1);
   assert.deepEqual(state.ownedLandIds, []);
   assert.equal(getActiveCampusBuildings(state).length, 1);
   assert.equal(state.automation.autoFurnish, true);
@@ -46,18 +57,18 @@ test('grid placement, rotation, move, and sell refund work accurately', () => {
   const grassCheck = canPlaceItem(state, 'desk_basic', 0, 0, 0);
   assert.equal(grassCheck.valid, false);
 
-  // Place GPU rig on empty garage tile inside 28x28 Main HQ (14, 15)
-  const placed = placeItem(state, 'gpu_rig_2010', 14, 15, 1);
+  // Place GPU rig on empty garage tile inside 40x40 Main HQ (20, 20)
+  const placed = placeItem(state, 'gpu_rig_2010', 20, 20, 1);
   assert.equal(placed.ok, true);
   assert.ok(placed.placedUid);
   assert.equal(state.cash, startCash - 3_200);
 
-  // Move it to (14, 16)
-  const moved = movePlacedItem(state, placed.placedUid!, 14, 16, 2);
+  // Move it to (20, 21)
+  const moved = movePlacedItem(state, placed.placedUid!, 20, 21, 2);
   assert.equal(moved.ok, true);
   const movedItem = state.items.find((i) => i.uid === placed.placedUid);
-  assert.equal(movedItem?.gx, 14);
-  assert.equal(movedItem?.gz, 16);
+  assert.equal(movedItem?.gx, 20);
+  assert.equal(movedItem?.gz, 21);
   assert.equal(movedItem?.rotation, 2);
 
   // Sell it and verify partial refund
@@ -163,7 +174,7 @@ test('tech tree, datasets, funding rounds, and events mutate state cleanly', () 
   assert.ok(state.founderEquityPct < 100);
 });
 
-test('save serialization, legacy 18x18->28x28 migration, and capped offline progress work deterministically', () => {
+test('save serialization, legacy 18x18->40x40 and 28x28->40x40 migrations, and capped offline progress work deterministically', () => {
   const state = createInitialState(1_000_000, 'Nebula AI');
   state.products.push({
     id: 'prd_1',
@@ -184,26 +195,49 @@ test('save serialization, legacy 18x18->28x28 migration, and capped offline prog
   assert.equal(restored!.cash, state.cash);
   assert.equal(restored!.items.length, state.items.length);
 
-  // Legacy 18x18 v1 save migrates cleanly to 28x28 with shifted coordinates (+5, +5)
-  const legacyFloors = Array.from({ length: 18 * 18 }, () => 'grass');
-  legacyFloors[6 * 18 + 6] = 'office';
-  const legacyPayload = JSON.stringify({
+  // Legacy 18x18 v1 save migrates cleanly to 40x40 with shifted coordinates (+11, +11)
+  const legacyFloors18 = Array.from({ length: 18 * 18 }, () => 'grass');
+  legacyFloors18[6 * 18 + 6] = 'lab';
+  const legacyPayload18 = JSON.stringify({
     ...state,
     version: 1,
     gridWidth: 18,
     gridHeight: 18,
-    floors: legacyFloors,
+    floors: legacyFloors18,
     ownedLandIds: undefined,
+    buildingStories: undefined,
     items: [{ uid: 'legacy_1', itemId: 'desk_basic', gx: 6, gz: 6, rotation: 0, placedAtDay: 0 }],
     staff: [{ ...state.staff[0], x: 6.5, z: 6.5, targetX: 6.5, targetZ: 6.5 }],
   });
-  const migrated = deserializeSave(legacyPayload);
-  assert.ok(migrated !== null);
-  assert.equal(migrated!.gridWidth, 28);
-  assert.equal(migrated!.gridHeight, 28);
-  assert.equal(migrated!.items[0].gx, 11);
-  assert.equal(migrated!.items[0].gz, 11);
-  assert.equal(migrated!.floors[11 * 28 + 11], 'office');
+  const migrated18 = deserializeSave(legacyPayload18);
+  assert.ok(migrated18 !== null);
+  assert.equal(migrated18!.gridWidth, 40);
+  assert.equal(migrated18!.gridHeight, 40);
+  assert.equal(migrated18!.items[0].gx, 17);
+  assert.equal(migrated18!.items[0].gz, 17);
+  assert.equal(migrated18!.floors[17 * 40 + 17], 'lab');
+  assert.equal(migrated18!.buildingStories.main_hq, 1);
+
+  // Legacy 28x28 v2 save migrates cleanly to 40x40 with shifted coordinates (+6, +4)
+  const legacyFloors28 = Array.from({ length: 28 * 28 }, () => 'grass');
+  legacyFloors28[12 * 28 + 16] = 'server';
+  const legacyPayload28 = JSON.stringify({
+    ...state,
+    version: 2,
+    gridWidth: 28,
+    gridHeight: 28,
+    floors: legacyFloors28,
+    buildingStories: undefined,
+    items: [{ uid: 'legacy_2', itemId: 'gpu_rig_2010', gx: 16, gz: 12, rotation: 0, placedAtDay: 0 }],
+    staff: [{ ...state.staff[0], x: 16.5, z: 12.5, targetX: 16.5, targetZ: 12.5 }],
+  });
+  const migrated28 = deserializeSave(legacyPayload28);
+  assert.ok(migrated28 !== null);
+  assert.equal(migrated28!.gridWidth, 40);
+  assert.equal(migrated28!.gridHeight, 40);
+  assert.equal(migrated28!.items[0].gx, 22);
+  assert.equal(migrated28!.items[0].gz, 16);
+  assert.equal(migrated28!.floors[16 * 40 + 22], 'server');
 
   const summary = calculateOfflineProgress(restored!, 3_600);
   assert.equal(summary.elapsedRealSeconds, 3_600);
@@ -211,9 +245,18 @@ test('save serialization, legacy 18x18->28x28 migration, and capped offline prog
   assert.ok(summary.cashEarned > 0);
 });
 
-test('per-tier HQ upgrades construct new buildings, land parcels are buyable, and Max 6-Building Campus deploys huge compute', () => {
+test('15-building campus, multi-story 1F-6F scaling, unlimited overrides, and Fill Geniuses work end-to-end', () => {
   const state = createInitialState(1_000_000);
-  state.cash = 2_000_000;
+  state.cash = 10_000_000;
+
+  // Baseline desk slots & compute at 1F
+  const baseRes = computeResources(state);
+  const addF2 = addBuildingStory(state, 'main_hq');
+  assert.equal(addF2.ok, true);
+  assert.equal(getBuildingStories(state, 'main_hq'), 2);
+  const f2Res = computeResources(state);
+  assert.equal(f2Res.deskSlots, baseRes.deskSlots * 2);
+  assert.ok(f2Res.computeTotal > baseRes.computeTotal);
 
   // Tier 0 -> 1 constructs East Compute Wing automatically
   const up1 = upgradeBuildingTier(state);
@@ -222,41 +265,66 @@ test('per-tier HQ upgrades construct new buildings, land parcels are buyable, an
   assert.ok(state.ownedLandIds.includes('east_datacenter'));
   assert.equal(getActiveCampusBuildings(state).length, 2);
 
-  // Tier 1 -> 2 constructs North Research Pavilion automatically
-  const up2 = upgradeBuildingTier(state);
-  assert.equal(up2.ok, true);
-  assert.equal(state.buildingTier, 2);
-  assert.ok(state.ownedLandIds.includes('north_research'));
-  assert.equal(getActiveCampusBuildings(state).length, 3);
-
-  // Independently buy NE SuperPod Hall land parcel
-  const bought = buyLandParcel(state, 'ne_superpod');
-  assert.equal(bought.ok, true);
-  assert.ok(state.ownedLandIds.includes('ne_superpod'));
+  // Independently buy South AI Foundry & Far-East Mega parcels
+  assert.equal(buyLandParcel(state, 'south_plaza').ok, true);
+  assert.equal(buyLandParcel(state, 'far_east_mega').ok, true);
   assert.equal(getActiveCampusBuildings(state).length, 4);
 
-  // Unlock remaining campus land via cheat helper
+  // Unlock all 14 surrounding parcels -> 15 total buildings
   unlockAllCampusLand(state);
-  assert.equal(state.ownedLandIds.length, 5);
-  assert.equal(getActiveCampusBuildings(state).length, 6);
+  assert.equal(state.ownedLandIds.length, 14);
+  assert.equal(getActiveCampusBuildings(state).length, 15);
+
+  // Max all 15 buildings to 6F skyscrapers
+  upgradeAllBuildingsToMaxStories(state);
+  for (const b of getActiveCampusBuildings(state)) {
+    assert.equal(b.stories, MAX_BUILDING_STORIES);
+  }
 
   const furnished = autoFurnishLab(state);
   assert.ok(furnished.placedCount >= 0);
 
-  // Max 6-Building Hyperscale Campus cheat works in 2010 AND scales to 2100 Singularity
+  // Max 15-Building 6F Mega-Campus cheat works in 2010 AND scales to 2100 Singularity
   applyMaxHyperscaleHQ(state);
   assert.equal(state.buildingTier, 3);
-  assert.equal(state.ownedLandIds.length, 5);
-  assert.equal(getActiveCampusBuildings(state).length, 6);
+  assert.equal(state.ownedLandIds.length, 14);
+  assert.equal(getActiveCampusBuildings(state).length, 15);
   const res2010 = computeResources(state);
-  assert.ok(res2010.computeTotal >= 10_000, `Expected Max 6-Building Campus compute >= 10000, got ${res2010.computeTotal}`);
+  assert.ok(res2010.computeTotal >= 50_000, `Expected Max 15-Bldg 6F Campus compute >= 50000, got ${res2010.computeTotal}`);
   assert.equal(res2010.isUnderpowered, false);
   assert.equal(res2010.isOverheated, false);
 
+  // Fill building & workspaces automatically with Lv.10 Geniuses
+  const filled = fillCampusWithGeniuses(state);
+  assert.ok(filled.hiredCount > 0, `Expected geniuses hired > 0, got ${filled.hiredCount}`);
+  assert.ok(state.staff.length >= 20, `Expected richly staffed campus, got ${state.staff.length}`);
+  assert.ok(state.staff.every((s) => s.skill === 10 && s.mood === 100 && s.energy === 100));
+
+  // Unlimited Compute, Power & Models overrides
+  state.cheatUnlimitedCompute = true;
+  state.cheatUnlimitedPower = true;
+  state.cheatUnlimitedModels = true;
+  const unlimRes = computeResources(state);
+  assert.equal(unlimRes.unlimitedCompute, true);
+  assert.equal(unlimRes.unlimitedPower, true);
+  assert.ok(unlimRes.computeTotal >= 999_999_999);
+  assert.equal(unlimRes.isUnderpowered, false);
+  assert.equal(unlimRes.isOverheated, false);
+  assert.equal(getMaxConcurrentTrainingJobs(state), 12);
+
+  // Launch 4 simultaneous models cleanly under Unlimited Models
+  for (let i = 0; i < 4; i++) {
+    const start = startTrainingJob(state, 'arch_convnet', 'ds_academic_vision', 50_000, `Hyper-${i}`);
+    assert.equal(start.ok, true);
+  }
+  assert.equal(state.trainingJobs.length, 4);
+
   state.eraIndex = 6;
+  state.cheatUnlimitedCompute = false;
+  state.cheatUnlimitedPower = false;
   applyMaxHyperscaleHQ(state);
   const res2100 = computeResources(state);
-  assert.ok(res2100.computeTotal >= 100_000, `Expected 2100 Singularity Campus compute >= 100000, got ${res2100.computeTotal}`);
+  assert.ok(res2100.computeTotal >= 500_000, `Expected 2100 Singularity 15-Bldg 6F compute >= 500000, got ${res2100.computeTotal}`);
   assert.equal(res2100.isUnderpowered, false);
   assert.equal(res2100.isOverheated, false);
 });

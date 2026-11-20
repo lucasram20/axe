@@ -13,7 +13,7 @@ import { generateCandidate, populateCandidates } from './staffSim';
 import { allocUid, type BuildingTier, type GameState, type LandParcelId } from './types';
 
 export const SAVE_STORAGE_KEY = 'project_labs_save_v1';
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 export type SaveSlotId = 'autosave' | 'slot_1' | 'slot_2' | 'slot_3';
 
@@ -97,6 +97,7 @@ export function createInitialState(
 
     buildingTier: 0,
     ownedLandIds: [],
+    buildingStories: { main_hq: 1 },
     gridWidth: w,
     gridHeight: h,
     floors,
@@ -159,34 +160,37 @@ export function createInitialState(
 
     cheatPerfectModels: false,
     cheatFreeBuild: false,
+    cheatUnlimitedCompute: false,
+    cheatUnlimitedPower: false,
+    cheatUnlimitedModels: false,
 
     lastCompletedModelId: null,
     lastSavedAtMs: nowMs,
   };
 
-  // Paint Tier 0 Main HQ floor zones cleanly (x: 8..19, z: 11..20)
+  // Paint Tier 0 Main HQ floor zones cleanly (x: 15..24, z: 15..24)
   applyTierFloorPlan(state, 0);
 
-  // Seed a clean, airy, well-spaced starter 2010 garage AI lab inside x: 8..19, z: 11..20
+  // Seed a clean, airy, well-spaced starter 2010 garage AI lab inside x: 15..24, z: 15..24
   const starterProps: Array<{ itemId: string; gx: number; gz: number; rot: 0 | 1 | 2 | 3 }> = [
     // Research workstations with spacious aisles
-    { itemId: 'desk_basic', gx: 10, gz: 13, rot: 0 },
-    { itemId: 'desk_basic', gx: 13, gz: 13, rot: 0 },
-    { itemId: 'desk_basic', gx: 10, gz: 15, rot: 0 },
-    { itemId: 'whiteboard', gx: 11, gz: 11, rot: 0 },
-    { itemId: 'bookshelf_posters', gx: 8, gz: 13, rot: 1 },
+    { itemId: 'desk_basic', gx: 17, gz: 17, rot: 0 },
+    { itemId: 'desk_basic', gx: 19, gz: 17, rot: 0 },
+    { itemId: 'desk_basic', gx: 17, gz: 19, rot: 0 },
+    { itemId: 'whiteboard', gx: 18, gz: 15, rot: 0 },
+    { itemId: 'bookshelf_posters', gx: 15, gz: 17, rot: 1 },
 
     // Starter GPU corner + cooling + outdoor generator
-    { itemId: 'gpu_rig_2010', gx: 16, gz: 12, rot: 0 },
-    { itemId: 'gpu_rig_2010', gx: 18, gz: 12, rot: 0 },
-    { itemId: 'server_rack', gx: 17, gz: 15, rot: 0 },
-    { itemId: 'ac_unit', gx: 16, gz: 11, rot: 0 },
-    { itemId: 'power_gen', gx: 20, gz: 13, rot: 0 },
+    { itemId: 'gpu_rig_2010', gx: 21, gz: 16, rot: 0 },
+    { itemId: 'gpu_rig_2010', gx: 23, gz: 16, rot: 0 },
+    { itemId: 'server_rack', gx: 22, gz: 19, rot: 0 },
+    { itemId: 'ac_unit', gx: 21, gz: 15, rot: 0 },
+    { itemId: 'power_gen', gx: 23, gz: 25, rot: 0 },
 
     // Cozy lounge corner
-    { itemId: 'coffee_machine', gx: 8, gz: 18, rot: 0 },
-    { itemId: 'potted_plant', gx: 8, gz: 20, rot: 0 },
-    { itemId: 'potted_plant', gx: 18, gz: 19, rot: 0 },
+    { itemId: 'coffee_machine', gx: 15, gz: 22, rot: 0 },
+    { itemId: 'potted_plant', gx: 15, gz: 24, rot: 0 },
+    { itemId: 'potted_plant', gx: 23, gz: 23, rot: 0 },
   ];
 
   for (const p of starterProps) {
@@ -204,20 +208,20 @@ export function createInitialState(
   const founder1 = generateCandidate(state, 'researcher');
   founder1.name = 'Ada Chen';
   founder1.skill = 4;
-  founder1.x = 10.5;
-  founder1.z = 13.9;
-  founder1.targetX = 10.5;
-  founder1.targetZ = 13.9;
+  founder1.x = 17.5;
+  founder1.z = 17.9;
+  founder1.targetX = 17.5;
+  founder1.targetZ = 17.9;
   founder1.activity = 'working';
   founder1.activityTimer = 4.5;
 
   const founder2 = generateCandidate(state, 'ml_engineer');
   founder2.name = 'Kenji Sato';
   founder2.skill = 3;
-  founder2.x = 13.5;
-  founder2.z = 14.4;
-  founder2.targetX = 16.5;
-  founder2.targetZ = 13.2;
+  founder2.x = 19.5;
+  founder2.z = 18.4;
+  founder2.targetX = 21.5;
+  founder2.targetZ = 17.2;
   founder2.activity = 'walking_to_server';
 
   state.staff.push(founder1, founder2);
@@ -243,26 +247,37 @@ export function migrateSave(raw: unknown): GameState | null {
   let items = Array.isArray(obj.items) ? obj.items.map((it) => ({ ...it })) : [];
   let staff = Array.isArray(obj.staff) ? obj.staff.map((st) => ({ ...st })) : [];
 
-  // Seamlessly migrate legacy 18x18 plots centered inside the expanded 28x28 campus!
-  if (rawW === 18 && rawH === 18 && floors.length === 18 * 18) {
+  // Seamlessly migrate legacy 18x18 (v1) or 28x28 (v2) plots centered inside the 40x40 mega-campus!
+  const migratedFromSmaller =
+    (rawW === 18 && rawH === 18 && floors.length === 18 * 18) ||
+    (rawW === 28 && rawH === 28 && floors.length === 28 * 28);
+  if (migratedFromSmaller) {
     const newW = BALANCE.gridWidth;
     const newH = BALANCE.gridHeight;
-    const dx = Math.floor((newW - rawW) / 2); // +5
-    const dz = Math.floor((newH - rawH) / 2); // +5
+    const dx = Math.floor((newW - rawW) / 2); // +11 for 18x18, +6 for 28x28
+    const dz = rawW === 28 ? 4 : Math.floor((newH - rawH) / 2); // +11 for 18x18, +4 for 28x28
     const expandedFloors: FloorType[] = new Array<FloorType>(newW * newH).fill('grass');
     for (let z = 0; z < rawH; z++) {
       for (let x = 0; x < rawW; x++) {
-        expandedFloors[floorIndex(x + dx, z + dz, newW)] = floors[floorIndex(x, z, rawW)];
+        const nx = x + dx;
+        const nz = z + dz;
+        if (nx >= 0 && nx < newW && nz >= 0 && nz < newH) {
+          expandedFloors[floorIndex(nx, nz, newW)] = floors[floorIndex(x, z, rawW)];
+        }
       }
     }
     floors = expandedFloors;
-    items = items.map((it) => ({ ...it, gx: it.gx + dx, gz: it.gz + dz }));
+    items = items.map((it) => ({
+      ...it,
+      gx: Math.max(0, Math.min(newW - 1, it.gx + dx)),
+      gz: Math.max(0, Math.min(newH - 1, it.gz + dz)),
+    }));
     staff = staff.map((st) => ({
       ...st,
-      x: st.x + dx,
-      z: st.z + dz,
-      targetX: st.targetX + dx,
-      targetZ: st.targetZ + dz,
+      x: Math.max(0.5, Math.min(newW - 0.5, st.x + dx)),
+      z: Math.max(0.5, Math.min(newH - 0.5, st.z + dz)),
+      targetX: Math.max(0.5, Math.min(newW - 0.5, st.targetX + dx)),
+      targetZ: Math.max(0.5, Math.min(newH - 0.5, st.targetZ + dz)),
     }));
   }
 
@@ -275,13 +290,23 @@ export function migrateSave(raw: unknown): GameState | null {
   if (tier >= 2) defaultOwned.push('north_research');
   if (tier >= 3) defaultOwned.push('west_annex');
 
+  const resolvedOwned = Array.isArray(obj.ownedLandIds) ? obj.ownedLandIds : defaultOwned;
+  const resolvedStories: Record<string, number> = {
+    main_hq: 1,
+    ...(obj.buildingStories ?? {}),
+  };
+  for (const id of resolvedOwned) {
+    if (!resolvedStories[id]) resolvedStories[id] = 1;
+  }
+
   const migrated: GameState = {
     ...base,
     ...obj,
     version: SAVE_VERSION,
     labName: sanitizeLabName(obj.labName),
     buildingTier: tier,
-    ownedLandIds: Array.isArray(obj.ownedLandIds) ? obj.ownedLandIds : defaultOwned,
+    ownedLandIds: resolvedOwned,
+    buildingStories: resolvedStories,
     gridWidth: BALANCE.gridWidth,
     gridHeight: BALANCE.gridHeight,
     floors,
@@ -304,8 +329,8 @@ export function migrateSave(raw: unknown): GameState | null {
     },
   };
 
-  // Paint tier-granted buildings cleanly when migrating older saves
-  if (!Array.isArray(obj.ownedLandIds) && defaultOwned.length > 0) {
+  // Repaint building floor zones cleanly when migrating from smaller grids
+  if (migratedFromSmaller || (!Array.isArray(obj.ownedLandIds) && defaultOwned.length > 0)) {
     applyTierFloorPlan(migrated, tier);
   }
 
