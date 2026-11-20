@@ -13,6 +13,13 @@ const SCALE_OPTIONS: Array<{ value: 1 | 2 | 3; label: string }> = [
   { value: 3, label: 'Retro 3x' },
 ];
 
+const PERF_OPTIONS: Array<{ value: 'auto' | 'low' | 'balanced' | 'high'; label: string }> = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'low', label: 'Low' },
+  { value: 'balanced', label: 'Med' },
+  { value: 'high', label: 'High' },
+];
+
 export function SettingsDrawer() {
   const labName = useGameStore((s) => s.game.labName);
   const settings = useGameStore((s) => s.game.settings);
@@ -82,6 +89,28 @@ export function SettingsDrawer() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
         <div className="pixel-inset p-2.5 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[#b8c0cf]">Performance</span>
+            <div className="flex gap-1">
+              {PERF_OPTIONS.map((opt) => {
+                const active = (settings.performanceMode ?? 'auto') === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    data-testid={`perf-mode-${opt.value}`}
+                    onClick={() => updateSettings({ performanceMode: opt.value })}
+                    className={`px-2 py-1 font-pixel-display text-[10px] sm:text-[11px] whitespace-nowrap ${
+                      active ? 'pixel-btn-gold' : 'pixel-btn'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="flex items-center justify-between gap-2">
             <span className="text-[#b8c0cf]">Graphics Style</span>
             <div className="flex gap-1">

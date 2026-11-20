@@ -19,6 +19,7 @@ const FLOOR_COLORS: Record<FloorType, string> = {
 
 export function Minimap() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const staticCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const game = useGameStore((s) => s.game);
   const cameraBounds = useGameStore((s) => s.cameraBounds);
   const jumpCameraTo = useGameStore((s) => s.jumpCameraTo);
@@ -27,14 +28,20 @@ export function Minimap() {
   const wPx = game.gridWidth * CELL_PX;
   const hPx = game.gridHeight * CELL_PX;
 
+  // Layer 1 (Cached): Only redraw static floor tiles & placed hardware when floors/items change!
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    if (!staticCanvasRef.current) {
+      staticCanvasRef.current = document.createElement('canvas');
+    }
+    const off = staticCanvasRef.current;
+    if (off.width !== wPx || off.height !== hPx) {
+      off.width = wPx;
+      off.height = hPx;
+    }
+    const ctx = off.getContext('2d');
     if (!ctx) return;
     ctx.imageSmoothingEnabled = false;
 
-    // 1. Floor tiles
     for (let z = 0; z < game.gridHeight; z++) {
       for (let x = 0; x < game.gridWidth; x++) {
         const f = game.floors[floorIndex(x, z, game.gridWidth)];
@@ -43,8 +50,8 @@ export function Minimap() {
       }
     }
 
-    // 2. Placed items
-    for (const item of game.items) {
+    for (let i = 0; i < game.items.length; i++) {
+      const item = game.items[i];
       const def = CATALOG_BY_ID[item.itemId];
       if (!def) continue;
       const [fw, fd] = getRotatedFootprint(item.itemId, item.rotation);
@@ -52,20 +59,33 @@ export function Minimap() {
       ctx.fillRect(
         item.gx * CELL_PX + 1,
         item.gz * CELL_PX + 1,
-        fw * CELL_PX - 2,
-        fd * CELL_PX - 2,
+        Math.max(1, fw * CELL_PX - 2),
+        Math.max(1, fd * CELL_PX - 2),
       );
     }
+  }, [game.floors, game.items, game.gridWidth, game.gridHeight, CELL_PX, wPx, hPx]);
 
-    // 3. Staff dots
-    for (const s of game.staff) {
+  // Layer 2 (Dynamic): Blit cached static map + overlay staff dots & camera viewport rect
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const off = staticCanvasRef.current;
+    if (!canvas || !off) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.imageSmoothingEnabled = false;
+
+    ctx.drawImage(off, 0, 0);
+
+    for (let i = 0; i < game.staff.length; i++) {
+      const s = game.staff[i];
+      const px = Math.round(s.x * CELL_PX);
+      const pz = Math.round(s.z * CELL_PX);
       ctx.fillStyle = STAFF_ROLES[s.role].shirtColor;
-      ctx.fillRect(Math.round(s.x * CELL_PX) - 1, Math.round(s.z * CELL_PX) - 1, 3, 3);
+      ctx.fillRect(px - 1, pz - 1, 3, 3);
       ctx.fillStyle = '#faf7eb';
-      ctx.fillRect(Math.round(s.x * CELL_PX), Math.round(s.z * CELL_PX), 1, 1);
+      ctx.fillRect(px, pz, 1, 1);
     }
 
-    // 4. Camera viewport rectangle
     ctx.strokeStyle = '#ffe478';
     ctx.lineWidth = 2;
     const rx = (cameraBounds.centerX - cameraBounds.halfW) * CELL_PX;
@@ -78,7 +98,7 @@ export function Minimap() {
       Math.min(wPx - 2, rw),
       Math.min(hPx - 2, rh),
     );
-  }, [game.floors, game.items, game.staff, game.gridWidth, game.gridHeight, cameraBounds, wPx, hPx]);
+  }, [game.floors, game.items, game.staff, cameraBounds, CELL_PX, wPx, hPx]);
 
   const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();

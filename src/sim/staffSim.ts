@@ -255,68 +255,82 @@ export function fireStaff(state: GameState, staffId: string): boolean {
   return true;
 }
 
-function findDeskForStaff(state: GameState, staff: StaffMember): string | null {
-  // Keep current desk if it still exists
-  if (
-    staff.assignedDeskUid &&
-    state.items.some((i) => i.uid === staff.assignedDeskUid)
-  ) {
-    return staff.assignedDeskUid;
-  }
-
-  // Count occupancy per desk
-  const occupancy = new Map<string, number>();
-  for (const s of state.staff) {
-    if (s.assignedDeskUid) {
-      occupancy.set(s.assignedDeskUid, (occupancy.get(s.assignedDeskUid) ?? 0) + 1);
-    }
-  }
-
-  const buildings = getActiveCampusBuildings(state);
-  const storiesAt = (gx: number, gz: number): number => {
-    for (const b of buildings) {
-      if (gx >= b.minX && gx <= b.maxX && gz >= b.minZ && gz <= b.maxZ) return b.stories;
-    }
-    return 1;
-  };
-
-  for (const item of state.items) {
-    const def = CATALOG_BY_ID[item.itemId];
-    if (!def?.deskSlots) continue;
-    const capacity = def.deskSlots * storiesAt(item.gx, item.gz);
-    const used = occupancy.get(item.uid) ?? 0;
-    if (used < capacity) {
-      return item.uid;
-    }
-  }
-  return null;
-}
-
 export function stepStaffSimulation(
   state: GameState,
   dtRealSec: number,
   gameDaysDelta: number,
   passiveMoodBonus: number,
 ): void {
-  const coffeeItems = state.items.filter((i) => CATALOG_BY_ID[i.itemId]?.isCoffee);
-  const serverItems = state.items.filter((i) => CATALOG_BY_ID[i.itemId]?.isServerProp);
-  const whiteboardItems = state.items.filter(
-    (i) => CATALOG_BY_ID[i.itemId]?.isWhiteboard,
-  );
-  const walkable = getWalkableIndoorTiles(state);
+  const staffCount = state.staff.length;
+  if (staffCount === 0) return;
+
+  // Pre-index all items ONCE per tick (O(items) instead of O(staff * items)!)
+  const deskByUid = new Map<string, GameState['items'][number]>();
+  const deskItems: Array<{ item: GameState['items'][number]; capacity: number }> = [];
+  const coffeeItems: GameState['items'][number][] = [];
+  const serverItems: GameState['items'][number][] = [];
+  const whiteboardItems: GameState['items'][number][] = [];
+
+  const buildings = getActiveCampusBuildings(state);
+  const storiesAt = (gx: number, gz: number): number => {
+    for (let bi = 0; bi < buildings.length; bi++) {
+      const b = buildings[bi];
+      if (gx >= b.minX && gx <= b.maxX && gz >= b.minZ && gz <= b.maxZ) return b.stories;
+    }
+    return 1;
+  };
+
+  for (let ii = 0; ii < state.items.length; ii++) {
+    const it = state.items[ii];
+    const def = CATALOG_BY_ID[it.itemId];
+    if (!def) continue;
+    if (def.deskSlots) {
+      deskByUid.set(it.uid, it);
+      deskItems.push({ item: it, capacity: def.deskSlots * storiesAt(it.gx, it.gz) });
+    }
+    if (def.isCoffee) coffeeItems.push(it);
+    if (def.isServerProp) serverItems.push(it);
+    if (def.isWhiteboard) whiteboardItems.push(it);
+  }
+
+  // Track desk occupancy ONCE per tick so desk assignment is O(1) amortized!
+  const occupancy = new Map<string, number>();
+  for (let i = 0; i < staffCount; i++) {
+    const uid = state.staff[i].assignedDeskUid;
+    if (uid && deskByUid.has(uid)) {
+      occupancy.set(uid, (occupancy.get(uid) ?? 0) + 1);
+    } else if (uid) {
+      state.staff[i].assignedDeskUid = null;
+    }
+  }
+  let nextDeskCursor = 0;
+
+  // Lazy walkable indoor tile list: only compute if someone actually needs a fallback wander!
+  let walkable: Array<[number, number]> | null = null;
 
   const walkSpeed = 1.65; // tiles per real second (scaled with game speed via dtRealSec)
+  const moodRecover = Math.min(4, passiveMoodBonus * 0.18);
 
-  for (let i = 0; i < state.staff.length; i++) {
+  for (let i = 0; i < staffCount; i++) {
     const s = state.staff[i];
     const trait = STAFF_TRAIT_BY_ID[s.traitId];
     const moodDecayMult = trait?.moodDecayMult ?? 1;
 
-    // Assign desk if needed
-    s.assignedDeskUid = findDeskForStaff(state, s);
+    // Assign desk in O(1) amortized if unassigned
+    if (!s.assignedDeskUid && deskItems.length > 0) {
+      while (nextDeskCursor < deskItems.length) {
+        const entry = deskItems[nextDeskCursor];
+        const used = occupancy.get(entry.item.uid) ?? 0;
+        if (used < entry.capacity) {
+          s.assignedDeskUid = entry.item.uid;
+          occupancy.set(entry.item.uid, used + 1);
+          break;
+        }
+        nextDeskCursor++;
+      }
+    }
 
     // Passive needs
-    const moodRecover = Math.min(4, passiveMoodBonus * 0.18);
     s.mood = Math.max(
       15,
       Math.min(
@@ -332,9 +346,10 @@ export function stepStaffSimulation(
     // Movement toward target
     const dx = s.targetX - s.x;
     const dz = s.targetZ - s.z;
-    const dist = Math.hypot(dx, dz);
+    const distSq = dx * dx + dz * dz;
 
-    if (dist > 0.08) {
+    if (distSq > 0.0064) {
+      const dist = Math.sqrt(distSq);
       const step = Math.min(dist, walkSpeed * dtRealSec);
       s.x += (dx / dist) * step;
       s.z += (dz / dist) * step;
@@ -401,9 +416,8 @@ export function stepStaffSimulation(
     }
 
     if (s.assignedDeskUid && roll < 0.82) {
-      const desk = state.items.find((it) => it.uid === s.assignedDeskUid);
+      const desk = deskByUid.get(s.assignedDeskUid);
       if (desk) {
-        // Offset second seat slightly on 2-slot desks
         const seatOffset = (i % 2) * 0.55;
         s.targetX = desk.gx + 0.35 + seatOffset;
         s.targetZ = desk.gz + 0.85;
@@ -412,7 +426,10 @@ export function stepStaffSimulation(
       }
     }
 
-    // Fallback wander inside lab
+    // Fallback wander inside lab (lazy tile index)
+    if (walkable === null) {
+      walkable = getWalkableIndoorTiles(state);
+    }
     if (walkable.length > 0) {
       const [wx, wz] = walkable[Math.floor(randFloat(state) * walkable.length)];
       s.targetX = wx + 0.5;

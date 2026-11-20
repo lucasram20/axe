@@ -97,8 +97,7 @@ function updateProducts(state: GameState, gameDaysDelta: number): void {
   }
 }
 
-function runAutomation(state: GameState): void {
-  const res = computeResources(state);
+function runAutomation(state: GameState, res: ReturnType<typeof computeResources>): void {
 
   // Auto-buy grid power contracts if underpowered
   if (
@@ -264,7 +263,7 @@ export function stepSimulation(
   );
 
   // Automation
-  runAutomation(state);
+  runAutomation(state, res);
 
   // Dynamic valuation floor
   const impliedVal = Math.round(

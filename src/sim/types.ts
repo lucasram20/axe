@@ -132,6 +132,7 @@ export interface AutomationState {
 
 export interface QualitySettings {
   pixelScale: 1 | 2 | 3;
+  performanceMode?: 'auto' | 'low' | 'balanced' | 'high';
   outlines: boolean;
   shadows: boolean;
   paletteQuantize: boolean;

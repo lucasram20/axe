@@ -28,7 +28,16 @@ const _scale = new THREE.Vector3();
 const _offset = new THREE.Vector3();
 const _axisX = new THREE.Vector3(1, 0, 0);
 const _axisY = new THREE.Vector3(0, 1, 0);
-const _color = new THREE.Color();
+const _colorCache = new Map<string, THREE.Color>();
+
+function getCachedColor(hex: string): THREE.Color {
+  let c = _colorCache.get(hex);
+  if (!c) {
+    c = new THREE.Color(hex);
+    _colorCache.set(hex, c);
+  }
+  return c;
+}
 
 interface VisualStaffPos {
   x: number;
@@ -58,6 +67,8 @@ export class InstancedStaffRenderer {
 
   // Smooth per-staff visual interpolation state (for 60fps gliding from 10Hz sim ticks)
   private readonly visualState = new Map<string, VisualStaffPos>();
+  private lastColorSig = '';
+  private shadowsEnabled = true;
 
   constructor(textures: PixelTexturePack) {
     // 1. Soft grounded contact shadow disc
@@ -174,6 +185,16 @@ export class InstancedStaffRenderer {
     }
   }
 
+  public setShadowsEnabled(enabled: boolean): void {
+    if (this.shadowsEnabled === enabled) return;
+    this.shadowsEnabled = enabled;
+    for (const mesh of this.allMeshes) {
+      if (mesh !== this.shadowMesh) {
+        mesh.castShadow = enabled;
+      }
+    }
+  }
+
   private placePart(
     mesh: THREE.InstancedMesh,
     index: number,
@@ -188,7 +209,7 @@ export class InstancedStaffRenderer {
     sx: number,
     sy: number,
     sz: number,
-    colorHex: string,
+    colorHex: string | null,
   ): void {
     _offset.set(localX, localY, localZ).applyQuaternion(yawQuat);
     _pos.set(baseX + _offset.x, baseY + _offset.y, baseZ + _offset.z);
@@ -201,8 +222,9 @@ export class InstancedStaffRenderer {
     _scale.set(sx, sy, sz);
     _mat4.compose(_pos, _finalQuat, _scale);
     mesh.setMatrixAt(index, _mat4);
-    _color.set(colorHex);
-    mesh.setColorAt(index, _color);
+    if (colorHex !== null) {
+      mesh.setColorAt(index, getCachedColor(colorHex));
+    }
   }
 
   public update(
@@ -220,6 +242,14 @@ export class InstancedStaffRenderer {
       for (const k of this.visualState.keys()) {
         if (!alive.has(k)) this.visualState.delete(k);
       }
+    }
+
+    const firstId = count > 0 ? staff[0].id : '';
+    const lastId = count > 0 ? staff[count - 1].id : '';
+    const colorSig = `${count}|${selectedStaffId ?? ''}|${firstId}|${lastId}`;
+    const colorsDirty = colorSig !== this.lastColorSig;
+    if (colorsDirty) {
+      this.lastColorSig = colorSig;
     }
 
     const pantsPalette = ['#24344d', '#332d34', '#47424d', '#3e587d'];
@@ -271,18 +301,18 @@ export class InstancedStaffRenderer {
       const hipY = 0.25 * sc + bob * 0.25;
       this.placePart(
         this.leftLegMesh, i, wx, hipY, wz,
-        -0.08 * sc, 0, 0, _quat, swing, sc, sc, sc, pantsColor,
+        -0.08 * sc, 0, 0, _quat, swing, sc, sc, sc, colorsDirty ? pantsColor : null,
       );
       this.placePart(
         this.rightLegMesh, i, wx, hipY, wz,
-        0.08 * sc, 0, 0, _quat, -swing, sc, sc, sc, pantsColor,
+        0.08 * sc, 0, 0, _quat, -swing, sc, sc, sc, colorsDirty ? pantsColor : null,
       );
 
       // 4. Textured Pixel Torso (role outfit + collar + chest ID badge)
       const torsoY = 0.40 * sc + bob;
       this.placePart(
         this.torsoMesh, i, wx, torsoY, wz,
-        0, 0, 0, _quat, 0, sc, sc, sc, shirtColor,
+        0, 0, 0, _quat, 0, sc, sc, sc, colorsDirty ? shirtColor : null,
       );
 
       // 5 & 6. Articulated Left & Right Arms (swing while walking, type at desk, or hold mug)
@@ -302,18 +332,18 @@ export class InstancedStaffRenderer {
 
       this.placePart(
         this.leftArmMesh, i, wx, shoulderY, wz,
-        -0.205 * sc, 0, 0, _quat, leftArmPitch, sc, sc, sc, shirtColor,
+        -0.205 * sc, 0, 0, _quat, leftArmPitch, sc, sc, sc, colorsDirty ? shirtColor : null,
       );
       this.placePart(
         this.rightArmMesh, i, wx, shoulderY, wz,
-        0.205 * sc, 0, 0, _quat, rightArmPitch, sc, sc, sc, shirtColor,
+        0.205 * sc, 0, 0, _quat, rightArmPitch, sc, sc, sc, colorsDirty ? shirtColor : null,
       );
 
       // 7. Chibi Pixel Head (front face displays crisp pixel eyes & smile)
       const headY = 0.69 * sc + bob;
       this.placePart(
         this.headMesh, i, wx, headY, wz,
-        0, 0, 0, _quat, 0, sc, sc, sc, s.skinTone,
+        0, 0, 0, _quat, 0, sc, sc, sc, colorsDirty ? s.skinTone : null,
       );
 
       // 8 & 9. Sculpted Hair Crown + Back/Side Hair Volume (style varies per staff)
@@ -322,11 +352,11 @@ export class InstancedStaffRenderer {
       const backH = hairStyle === 2 ? 1.32 : 0.95;
       this.placePart(
         this.hairTopMesh, i, wx, headY + 0.145 * sc, wz,
-        0, 0, -0.01 * sc, _quat, 0, sc, sc * crownH, sc, s.hairColor,
+        0, 0, -0.01 * sc, _quat, 0, sc, sc * crownH, sc, colorsDirty ? s.hairColor : null,
       );
       this.placePart(
         this.hairBackMesh, i, wx, headY + (hairStyle === 2 ? -0.02 : 0.02) * sc, wz,
-        0, 0, -0.115 * sc, _quat, 0, sc, sc * backH, sc, s.hairColor,
+        0, 0, -0.115 * sc, _quat, 0, sc, sc * backH, sc, colorsDirty ? s.hairColor : null,
       );
 
       // 10. Role-Specific 3D Pixel Accessory
@@ -334,26 +364,26 @@ export class InstancedStaffRenderer {
         // Dark-rimmed scholar glasses on front of head
         this.placePart(
           this.accessoryMesh, i, wx, headY + 0.01 * sc, wz,
-          0, 0, 0.142 * sc, _quat, 0, 0.25 * sc, 0.055 * sc, 0.03 * sc, '#231b1c',
+          0, 0, 0.142 * sc, _quat, 0, 0.25 * sc, 0.055 * sc, 0.03 * sc, colorsDirty ? '#231b1c' : null,
         );
       } else if (s.role === 'ml_engineer' || s.role === 'data_engineer') {
-        // Cozy tech backpack on back (echoes the backpack in the reference room!)
+        // Cozy tech backpack on back
         const packColor = s.role === 'ml_engineer' ? '#3e587d' : '#66ad45';
         this.placePart(
           this.accessoryMesh, i, wx, torsoY + 0.01 * sc, wz,
-          0, 0, -0.145 * sc, _quat, 0, 0.22 * sc, 0.24 * sc, 0.10 * sc, packColor,
+          0, 0, -0.145 * sc, _quat, 0, 0.22 * sc, 0.24 * sc, 0.10 * sc, colorsDirty ? packColor : null,
         );
       } else if (s.role === 'infra_devops') {
         // Glowing cyan DevOps headset band across top/side of head
         this.placePart(
           this.accessoryMesh, i, wx, headY + 0.03 * sc, wz,
-          0, 0, 0.02 * sc, _quat, 0, 0.34 * sc, 0.06 * sc, 0.06 * sc, '#5baad9',
+          0, 0, 0.02 * sc, _quat, 0, 0.34 * sc, 0.06 * sc, 0.06 * sc, colorsDirty ? '#5baad9' : null,
         );
       } else {
         // Brass/gold lapel badge / scarf accent for Product & Sales
         this.placePart(
           this.accessoryMesh, i, wx, torsoY + 0.12 * sc, wz,
-          0, 0, 0.115 * sc, _quat, 0, 0.12 * sc, 0.08 * sc, 0.04 * sc, '#e6b84c',
+          0, 0, 0.115 * sc, _quat, 0, 0.12 * sc, 0.08 * sc, 0.04 * sc, colorsDirty ? '#e6b84c' : null,
         );
       }
 
@@ -376,15 +406,18 @@ export class InstancedStaffRenderer {
         _scale.set(0, 0, 0);
         _mat4.compose(_pos, _quat, _scale);
         this.propMesh.setMatrixAt(i, _mat4);
-        _color.set('#f8f0df');
-        this.propMesh.setColorAt(i, _color);
+        if (colorsDirty) {
+          this.propMesh.setColorAt(i, getCachedColor('#f8f0df'));
+        }
       }
     }
 
     for (const mesh of this.allMeshes) {
       mesh.count = count;
       mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      if (mesh.instanceColor && (colorsDirty || mesh === this.propMesh)) {
+        mesh.instanceColor.needsUpdate = true;
+      }
     }
   }
 

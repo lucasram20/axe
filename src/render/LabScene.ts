@@ -22,7 +22,15 @@ import {
 import { canPlaceItem, findItemAtTile, floorIndex, getRotatedFootprint } from '../sim/grid';
 import type { PlacedItem, RotationQuarter } from '../sim/types';
 import { useGameStore } from '../store/useGameStore';
-import { VoxelModelFactory, type ModelBuildResult } from './models';
+import {
+  buildPlacedItemsInstanced,
+  clearItemTemplateCache,
+  detectLowEndDevice,
+  InstancedBoxBucket,
+  type EffectivePerfTier,
+  type PerformanceMode,
+} from './instancedBatcher';
+import { VoxelModelFactory } from './models';
 import { VoxelParticlePool } from './particles';
 import { PixelRenderPipeline } from './pixelPipeline';
 import { InstancedStaffRenderer } from './staffRenderer';
@@ -207,14 +215,60 @@ interface WallAssembly {
   currentScaleY: number;
 }
 
-interface PlacedMeshEntry {
-  uid: string;
-  itemId: string;
-  gx: number;
-  gz: number;
-  rotation: RotationQuarter;
-  built: ModelBuildResult;
+interface PerfTierProfile {
+  maxDim: number;
+  fastOutlines: boolean;
+  allowShadows: boolean;
+  shadowMapSize: number;
+  particleInterval: number;
+  maxParticlesPerTick: number;
+  simInterval: number;
 }
+
+const PERF_PROFILES: Record<EffectivePerfTier, PerfTierProfile> = {
+  low: {
+    maxDim: 800,
+    fastOutlines: true,
+    allowShadows: false,
+    shadowMapSize: 512,
+    particleInterval: 0.55,
+    maxParticlesPerTick: 4,
+    simInterval: 0.16,
+  },
+  balanced: {
+    maxDim: 1120,
+    fastOutlines: true,
+    allowShadows: true,
+    shadowMapSize: 512,
+    particleInterval: 0.35,
+    maxParticlesPerTick: 8,
+    simInterval: 0.125,
+  },
+  high: {
+    maxDim: 1440,
+    fastOutlines: false,
+    allowShadows: true,
+    shadowMapSize: 1024,
+    particleInterval: 0.26,
+    maxParticlesPerTick: 16,
+    simInterval: 0.1,
+  },
+};
+
+const FLOOR_TYPES: readonly FloorType[] = ['grass', 'garage', 'lab', 'server', 'lounge'];
+const PARTICLE_ITEM_IDS = new Set([
+  'cooling_tower',
+  'cryo_spire',
+  'coffee_machine',
+  'quantum_core',
+  'singularity_core',
+  'fusion_reactor',
+  'gpu_rig_2010',
+  'tensor_pod',
+  'liquid_cluster',
+]);
+
+const _floorMat4 = new THREE.Matrix4();
 
 export class LabSceneController {
   private readonly container: HTMLElement;
@@ -234,27 +288,50 @@ export class LabSceneController {
   private readonly sunLight: THREE.DirectionalLight;
   private readonly hemiLight: THREE.HemisphereLight;
 
+  // Adaptive performance state
+  private autoDetectedTier: EffectivePerfTier;
+  private effectivePerfTier: EffectivePerfTier;
+  private lastAppliedPerfMode: PerformanceMode = 'auto';
+  private lastAppliedMaxDim = 0;
+  private lastAppliedShadowSize = 1024;
+  private avgFrameMs = 16.6;
+  private slowFrameAccumSec = 0;
+  private shadowUpdateAccumSec = 0;
+  private shadowDirty = true;
+  private perfReportAccumSec = 0;
+
   // Grid & world containers
   private readonly gridW = BALANCE.gridWidth;
   private readonly gridH = BALANCE.gridHeight;
   private readonly gridOffsetX = BALANCE.gridWidth / 2;
   private readonly gridOffsetZ = BALANCE.gridHeight / 2;
 
-  private readonly floorTiles: THREE.Mesh[] = [];
   private readonly floorMaterials: Record<FloorType, THREE.MeshToonMaterial>;
+  private readonly floorInstancedMeshes: Record<FloorType, THREE.InstancedMesh>;
+  private readonly floorTileGeo: THREE.BoxGeometry;
   private readonly floorStateCache: FloorType[] = [];
+  private lastFloorsRef: readonly FloorType[] | null = null;
 
   private readonly buildingShellGroup = new THREE.Group();
   private wallAssemblies: WallAssembly[] = [];
-  private shellWindowMeshes: THREE.Mesh[] = [];
-  private shellGlowMeshes: THREE.Mesh[] = [];
+  private shellWindowMats: THREE.MeshToonMaterial[] = [];
+  private shellGlowMats: THREE.MeshToonMaterial[] = [];
+  private shellInstancedMeshes: THREE.InstancedMesh[] = [];
   private shellDisposables: Array<THREE.BufferGeometry | THREE.Material> = [];
   private lastShellSignature = '';
-  private lastVisualEra = -1;
-  private streetLampBulbs: THREE.Mesh[] = [];
+  private streetLampBulbMat: THREE.MeshToonMaterial | null = null;
+  private surroundingShadowMeshes: THREE.Object3D[] = [];
 
   private readonly placedGroup = new THREE.Group();
-  private readonly placedEntries = new Map<string, PlacedMeshEntry>();
+  private placedItemMeshes: THREE.InstancedMesh[] = [];
+  private itemNightGlowMats: THREE.MeshToonMaterial[] = [];
+  private itemBlinkMats: THREE.MeshToonMaterial[] = [];
+  private readonly placedItemMap = new Map<string, PlacedItem>();
+  private particleSourceItems: PlacedItem[] = [];
+  private lastItemsRef: readonly PlacedItem[] | null = null;
+  private lastItemsEra = -1;
+  private lastItemsMovingUid: string | null = null;
+  private lastItemsShadows = true;
 
   // Build ghost & hover highlight
   private ghostGroup: THREE.Group | null = null;
@@ -307,6 +384,13 @@ export class LabSceneController {
   constructor(container: HTMLElement) {
     this.container = container;
     this.isSoftwareGl = detectSoftwareWebGL();
+    this.autoDetectedTier = detectLowEndDevice(this.isSoftwareGl);
+
+    const initialSettings = useGameStore.getState().game.settings;
+    const initMode = initialSettings.performanceMode ?? 'auto';
+    this.lastAppliedPerfMode = initMode;
+    this.effectivePerfTier = initMode === 'auto' ? this.autoDetectedTier : initMode;
+    const initProfile = PERF_PROFILES[this.effectivePerfTier];
 
     const width = Math.max(320, container.clientWidth || window.innerWidth);
     const height = Math.max(200, container.clientHeight || window.innerHeight);
@@ -319,7 +403,11 @@ export class LabSceneController {
     this.renderer.setPixelRatio(1); // Pixel-art pipeline renders exact integer pixels
     this.renderer.setSize(width, height);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.shadowMap.enabled = !this.isSoftwareGl && useGameStore.getState().game.settings.shadows;
+    this.renderer.info.autoReset = false;
+    const initialShadows = !this.isSoftwareGl && initialSettings.shadows && initProfile.allowShadows;
+    this.renderer.shadowMap.enabled = initialShadows;
+    this.renderer.shadowMap.autoUpdate = false; // Throttled 4Hz shadow updates instead of 60Hz!
+    this.renderer.shadowMap.needsUpdate = true;
     this.renderer.shadowMap.type = THREE.BasicShadowMap; // Crisp pixel-art shadow edges
 
     const canvas = this.renderer.domElement;
@@ -333,6 +421,7 @@ export class LabSceneController {
     this.textures = createPixelTextures();
     this.modelFactory = new VoxelModelFactory(this.textures);
     this.staffRenderer = new InstancedStaffRenderer(this.textures);
+    this.staffRenderer.setShadowsEnabled(initialShadows);
     this.particles = new VoxelParticlePool();
 
     // True Isometric Orthographic Camera (deep near/far range so 6F skyscrapers never clip)
@@ -349,13 +438,14 @@ export class LabSceneController {
     this.camera.zoom = this.currentZoom;
     this.camera.updateProjectionMatrix();
 
-    const settings = useGameStore.getState().game.settings;
+    this.lastAppliedMaxDim = initProfile.maxDim;
     this.pipeline = new PixelRenderPipeline(
       this.renderer,
       width,
       height,
-      settings.pixelScale,
+      initialSettings.pixelScale,
     );
+    this.pipeline.resize(width, height, initialSettings.pixelScale, initProfile.maxDim);
 
     // Lighting: bright, crisp low-poly architectural sunlight + clean sky-ground bounce
     this.hemiLight = new THREE.HemisphereLight('#fff8eb', '#5e5869', 1.05);
@@ -363,8 +453,9 @@ export class LabSceneController {
 
     this.sunLight = new THREE.DirectionalLight('#fff2d6', 1.65);
     this.sunLight.position.set(24, 36, 18);
-    this.sunLight.castShadow = true;
-    this.sunLight.shadow.mapSize.set(1024, 1024);
+    this.sunLight.castShadow = initialShadows;
+    this.lastAppliedShadowSize = initProfile.shadowMapSize;
+    this.sunLight.shadow.mapSize.set(initProfile.shadowMapSize, initProfile.shadowMapSize);
     this.sunLight.shadow.camera.left = -36;
     this.sunLight.shadow.camera.right = 36;
     this.sunLight.shadow.camera.top = 36;
@@ -383,8 +474,26 @@ export class LabSceneController {
       lounge: new THREE.MeshToonMaterial({ map: this.textures.floors.lounge, gradientMap: this.textures.toonGradient }),
     };
 
+    // 5 InstancedMeshes for the entire 40x40 (1,600-tile) interactive campus floor!
+    const maxTiles = this.gridW * this.gridH;
+    this.floorTileGeo = new THREE.BoxGeometry(0.995, 0.06, 0.995);
+    this.floorInstancedMeshes = {
+      grass: new THREE.InstancedMesh(this.floorTileGeo, this.floorMaterials.grass, maxTiles),
+      garage: new THREE.InstancedMesh(this.floorTileGeo, this.floorMaterials.garage, maxTiles),
+      lab: new THREE.InstancedMesh(this.floorTileGeo, this.floorMaterials.lab, maxTiles),
+      server: new THREE.InstancedMesh(this.floorTileGeo, this.floorMaterials.server, maxTiles),
+      lounge: new THREE.InstancedMesh(this.floorTileGeo, this.floorMaterials.lounge, maxTiles),
+    };
+    for (const ft of FLOOR_TYPES) {
+      const m = this.floorInstancedMeshes[ft];
+      m.count = 0;
+      m.receiveShadow = true;
+      m.castShadow = false;
+      m.frustumCulled = false;
+      this.scene.add(m);
+    }
+
     this.buildSurroundings();
-    this.buildInteractiveFloorGrid();
 
     this.scene.add(this.buildingShellGroup);
     this.scene.add(this.placedGroup);
@@ -447,7 +556,7 @@ export class LabSceneController {
       gradientMap: this.textures.toonGradient,
     });
     const lawn = new THREE.Mesh(lawnGeo, lawnMat);
-    lawn.position.set(0, -0.32, 0);
+    lawn.position.set(0, -0.34, 0);
     lawn.receiveShadow = true;
     this.scene.add(lawn);
 
@@ -461,7 +570,7 @@ export class LabSceneController {
       gradientMap: this.textures.toonGradient,
     });
     const road = new THREE.Mesh(roadGeo, roadMat);
-    road.position.set(0, 0.0, this.gridOffsetZ + 2.5);
+    road.position.set(0, -0.02, this.gridOffsetZ + 2.5);
     road.receiveShadow = true;
     this.scene.add(road);
 
@@ -472,7 +581,7 @@ export class LabSceneController {
       gradientMap: this.textures.toonGradient,
     });
     const curb = new THREE.Mesh(curbGeo, curbMat);
-    curb.position.set(0, 0.01, this.gridOffsetZ + 0.65);
+    curb.position.set(0, -0.01, this.gridOffsetZ + 0.65);
     curb.receiveShadow = true;
     this.scene.add(curb);
 
@@ -483,36 +592,50 @@ export class LabSceneController {
       gradientMap: this.textures.toonGradient,
     });
     const apron = new THREE.Mesh(apronGeo, apronMat);
-    apron.position.set(0, 0.006, this.gridOffsetZ + 0.85);
+    apron.position.set(0, -0.004, this.gridOffsetZ + 0.85);
     apron.receiveShadow = true;
     this.scene.add(apron);
 
-    // Campus streetlamps along the sidewalk with warm night glow
+    // Instanced campus streetlamps along the sidewalk (3 draw calls total instead of 24!)
+    const lampXs = [-18, -12.5, -7.2, -2.6, 2.6, 7.2, 12.5, 18];
     const poleGeo = new THREE.BoxGeometry(0.11, 2.1, 0.11);
     const armGeo = new THREE.BoxGeometry(0.11, 0.09, 0.48);
     const bulbGeo = new THREE.BoxGeometry(0.2, 0.12, 0.2);
     const poleMat = new THREE.MeshToonMaterial({ color: '#394052', gradientMap: this.textures.toonGradient });
-    for (const lx of [-18, -12.5, -7.2, -2.6, 2.6, 7.2, 12.5, 18]) {
-      const pole = new THREE.Mesh(poleGeo, poleMat);
-      pole.position.set(lx, 1.05, this.gridOffsetZ + 0.9);
-      pole.castShadow = true;
-      this.scene.add(pole);
+    this.streetLampBulbMat = new THREE.MeshToonMaterial({
+      color: '#fff2ba',
+      emissive: '#ffe478',
+      emissiveIntensity: 0.45,
+      gradientMap: this.textures.toonGradient,
+    });
+    const polesInst = new THREE.InstancedMesh(poleGeo, poleMat, lampXs.length);
+    const armsInst = new THREE.InstancedMesh(armGeo, poleMat, lampXs.length);
+    const bulbsInst = new THREE.InstancedMesh(bulbGeo, this.streetLampBulbMat, lampXs.length);
+    const lampDummy = new THREE.Object3D();
+    lampXs.forEach((lx, idx) => {
+      lampDummy.position.set(lx, 1.05, this.gridOffsetZ + 0.9);
+      lampDummy.scale.set(1, 1, 1);
+      lampDummy.rotation.set(0, 0, 0);
+      lampDummy.updateMatrix();
+      polesInst.setMatrixAt(idx, lampDummy.matrix);
 
-      const arm = new THREE.Mesh(armGeo, poleMat);
-      arm.position.set(lx, 2.08, this.gridOffsetZ + 1.1);
-      this.scene.add(arm);
+      lampDummy.position.set(lx, 2.08, this.gridOffsetZ + 1.1);
+      lampDummy.updateMatrix();
+      armsInst.setMatrixAt(idx, lampDummy.matrix);
 
-      const bulbMat = new THREE.MeshToonMaterial({
-        color: '#fff2ba',
-        emissive: '#ffe478',
-        emissiveIntensity: 0.45,
-        gradientMap: this.textures.toonGradient,
-      });
-      const bulb = new THREE.Mesh(bulbGeo, bulbMat);
-      bulb.position.set(lx, 2.0, this.gridOffsetZ + 1.3);
-      this.scene.add(bulb);
-      this.streetLampBulbs.push(bulb);
-    }
+      lampDummy.position.set(lx, 2.0, this.gridOffsetZ + 1.3);
+      lampDummy.updateMatrix();
+      bulbsInst.setMatrixAt(idx, lampDummy.matrix);
+    });
+    polesInst.castShadow = this.renderer.shadowMap.enabled;
+    polesInst.frustumCulled = false;
+    armsInst.frustumCulled = false;
+    bulbsInst.frustumCulled = false;
+    polesInst.instanceMatrix.needsUpdate = true;
+    armsInst.instanceMatrix.needsUpdate = true;
+    bulbsInst.instanceMatrix.needsUpdate = true;
+    this.scene.add(polesInst, armsInst, bulbsInst);
+    this.surroundingShadowMeshes.push(polesInst);
 
     // Cutaway architectural slab foundation border framing the 40x40 campus estate
     const borderGeo = new THREE.BoxGeometry(this.gridW + 0.56, 0.24, this.gridH + 0.56);
@@ -521,7 +644,7 @@ export class LabSceneController {
       gradientMap: this.textures.toonGradient,
     });
     const border = new THREE.Mesh(borderGeo, borderMat);
-    border.position.set(0, -0.10, 0);
+    border.position.set(0, -0.145, 0);
     border.receiveShadow = true;
     this.scene.add(border);
 
@@ -571,34 +694,71 @@ export class LabSceneController {
     });
 
     for (const m of [trunks, canopies, tops]) {
-      m.castShadow = true;
+      m.castShadow = this.renderer.shadowMap.enabled;
       m.receiveShadow = true;
+      m.frustumCulled = false;
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
       this.scene.add(m);
+      this.surroundingShadowMeshes.push(m);
     }
   }
 
-  private buildInteractiveFloorGrid(): void {
-    const tileGeo = new THREE.BoxGeometry(0.995, 0.06, 0.995);
-    const state = useGameStore.getState().game;
-
-    for (let gz = 0; gz < this.gridH; gz++) {
-      for (let gx = 0; gx < this.gridW; gx++) {
-        const idx = floorIndex(gx, gz, this.gridW);
-        const fType = state.floors[idx] ?? 'grass';
-        this.floorStateCache.push(fType);
-        const mesh = new THREE.Mesh(tileGeo, this.floorMaterials[fType]);
-        mesh.position.set(
-          gx - this.gridOffsetX + 0.5,
-          fType === 'grass' ? -0.025 : 0.0,
-          gz - this.gridOffsetZ + 0.5,
-        );
-        mesh.receiveShadow = true;
-        this.scene.add(mesh);
-        this.floorTiles.push(mesh);
+  private syncFloorGrid(floors: readonly FloorType[], force: boolean): void {
+    if (!force && floors === this.lastFloorsRef) return;
+    let changed = force || this.floorStateCache.length !== floors.length;
+    if (!changed) {
+      for (let i = 0; i < floors.length; i++) {
+        if (this.floorStateCache[i] !== floors[i]) {
+          changed = true;
+          break;
+        }
       }
     }
+    this.lastFloorsRef = floors;
+    if (!changed) return;
+
+    this.floorStateCache.length = floors.length;
+    const counts: Record<FloorType, number> = {
+      grass: 0,
+      garage: 0,
+      lab: 0,
+      server: 0,
+      lounge: 0,
+    };
+
+    for (let gz = 0; gz < this.gridH; gz++) {
+      const wz = gz - this.gridOffsetZ + 0.5;
+      for (let gx = 0; gx < this.gridW; gx++) {
+        const idx = floorIndex(gx, gz, this.gridW);
+        const fType = floors[idx] ?? 'grass';
+        this.floorStateCache[idx] = fType;
+        const slot = counts[fType]++;
+        _floorMat4.makeTranslation(
+          gx - this.gridOffsetX + 0.5,
+          fType === 'grass' ? -0.04 : 0.0,
+          wz,
+        );
+        this.floorInstancedMeshes[fType].setMatrixAt(slot, _floorMat4);
+      }
+    }
+
+    for (const ft of FLOOR_TYPES) {
+      const m = this.floorInstancedMeshes[ft];
+      m.count = counts[ft];
+      m.instanceMatrix.needsUpdate = true;
+    }
+    this.shadowDirty = true;
+  }
+
+  private clearPlacedItemMeshes(): void {
+    for (const m of this.placedItemMeshes) {
+      this.placedGroup.remove(m);
+      m.dispose();
+    }
+    this.placedItemMeshes = [];
+    this.itemNightGlowMats = [];
+    this.itemBlinkMats = [];
   }
 
   private itemWorldCenter(item: Pick<PlacedItem, 'itemId' | 'gx' | 'gz' | 'rotation'>): [number, number] {
@@ -613,108 +773,115 @@ export class LabSceneController {
     const store = useGameStore.getState();
     const game = store.game;
 
-    // 1. Sync floor tiles
-    for (let i = 0; i < game.floors.length; i++) {
-      const f = game.floors[i];
-      if (force || this.floorStateCache[i] !== f) {
-        this.floorStateCache[i] = f;
-        const mesh = this.floorTiles[i];
-        if (mesh) {
-          mesh.material = this.floorMaterials[f];
-          mesh.position.y = f === 'grass' ? -0.025 : 0.0;
-        }
-      }
+    // 0. Resolve effective performance tier & apply resolution/shadow changes
+    const perfMode: PerformanceMode = game.settings.performanceMode ?? 'auto';
+    if (perfMode !== this.lastAppliedPerfMode) {
+      this.lastAppliedPerfMode = perfMode;
+      this.effectivePerfTier = perfMode === 'auto' ? this.autoDetectedTier : perfMode;
+      this.slowFrameAccumSec = 0;
+    }
+    const profile = PERF_PROFILES[this.effectivePerfTier];
+    const wantShadows = !this.isSoftwareGl && game.settings.shadows && profile.allowShadows;
+
+    if (
+      game.settings.pixelScale !== this.pipeline.pixelScale ||
+      profile.maxDim !== this.lastAppliedMaxDim
+    ) {
+      this.lastAppliedMaxDim = profile.maxDim;
+      this.handleResize();
     }
 
-    // 1b. Rebuild multi-building multi-story cutaway architectural shells when HQ tier, owned land, stories, or Era changes
+    if (this.renderer.shadowMap.enabled !== wantShadows) {
+      this.renderer.shadowMap.enabled = wantShadows;
+      this.sunLight.castShadow = wantShadows;
+      this.staffRenderer.setShadowsEnabled(wantShadows);
+      for (const m of this.surroundingShadowMeshes) {
+        m.castShadow = wantShadows;
+      }
+      this.shadowDirty = true;
+    }
+
+    if (wantShadows && profile.shadowMapSize !== this.lastAppliedShadowSize) {
+      this.lastAppliedShadowSize = profile.shadowMapSize;
+      this.sunLight.shadow.mapSize.set(profile.shadowMapSize, profile.shadowMapSize);
+      this.sunLight.shadow.map?.dispose();
+      this.sunLight.shadow.map = null;
+      this.shadowDirty = true;
+    }
+
+    // 1. Sync instanced 40x40 floor tiles (5 draw calls total!)
+    this.syncFloorGrid(game.floors, force);
+
+    // 1b. Rebuild batched multi-building multi-story cutaway architectural shells on changes
     const eraIdx = Math.min(Math.max(0, game.eraIndex), ERA_BUILDING_THEMES.length - 1);
     const ownedKey = (game.ownedLandIds ?? []).join(',');
     const storiesKey = Object.entries(game.buildingStories ?? {})
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([k, v]) => `${k}:${v}`)
       .join(',');
-    const shellSig = `e${eraIdx}|t${game.buildingTier ?? 0}|l:${ownedKey}|s:${storiesKey}`;
+    const shellSig = `e${eraIdx}|t${game.buildingTier ?? 0}|l:${ownedKey}|s:${storiesKey}|sh:${wantShadows ? 1 : 0}`;
     if (force || shellSig !== this.lastShellSignature) {
       this.lastShellSignature = shellSig;
       const buildings = getActiveCampusBuildings(game);
-      this.rebuildCampusShell(buildings, game.ownedLandIds ?? [], eraIdx);
+      this.rebuildCampusShell(buildings, game.ownedLandIds ?? [], eraIdx, wantShadows);
+      this.shadowDirty = true;
     }
 
-    // 2. Sync placed items (rebuild all item meshes cleanly whenever Era visually advances!)
-    const eraChanged = this.lastVisualEra !== -1 && this.lastVisualEra !== eraIdx;
-    this.lastVisualEra = eraIdx;
+    // 2. Sync batched instanced placed items (~25 draw calls for 300+ items!)
+    const eraChanged = this.lastItemsEra !== -1 && this.lastItemsEra !== eraIdx;
+    const itemsChanged =
+      force ||
+      game.items !== this.lastItemsRef ||
+      eraIdx !== this.lastItemsEra ||
+      store.movingItemUid !== this.lastItemsMovingUid ||
+      wantShadows !== this.lastItemsShadows;
 
-    if (eraChanged) {
-      for (const entry of this.placedEntries.values()) {
-        this.placedGroup.remove(entry.built.group);
+    if (itemsChanged) {
+      if (eraChanged) {
+        this.ghostItemId = null;
+        this.lastHighlightUid = null;
       }
-      this.placedEntries.clear();
-      this.ghostItemId = null;
-      this.lastHighlightUid = null;
-    }
 
-    const liveUids = new Set<string>();
-    for (const item of game.items) {
-      liveUids.add(item.uid);
-      const existing = this.placedEntries.get(item.uid);
-      if (existing) {
-        if (
-          existing.gx !== item.gx ||
-          existing.gz !== item.gz ||
-          existing.rotation !== item.rotation
-        ) {
-          existing.gx = item.gx;
-          existing.gz = item.gz;
-          existing.rotation = item.rotation;
-          const [wx, wz] = this.itemWorldCenter(item);
-          existing.built.group.position.set(wx, 0.03, wz);
-          existing.built.group.rotation.y = (item.rotation * Math.PI) / 2;
+      // Spawn dust burst if player just placed a new item
+      if (!force && !eraChanged && game.items.length > this.prevItemCount) {
+        const newest = game.items[game.items.length - 1];
+        if (newest) {
+          const [wx, wz] = this.itemWorldCenter(newest);
+          this.particles.spawnPlacementBurst(wx, wz);
         }
-        // Hide item currently being moved (shown via ghost preview instead)
-        existing.built.group.visible = store.movingItemUid !== item.uid;
-      } else {
-        const built = this.modelFactory.createModel(item.itemId, eraIdx);
-        const [wx, wz] = this.itemWorldCenter(item);
-        built.group.position.set(wx, 0.03, wz);
-        built.group.rotation.y = (item.rotation * Math.PI) / 2;
-        this.placedGroup.add(built.group);
-        this.placedEntries.set(item.uid, {
-          uid: item.uid,
-          itemId: item.itemId,
-          gx: item.gx,
-          gz: item.gz,
-          rotation: item.rotation,
-          built,
-        });
       }
-    }
+      this.prevItemCount = game.items.length;
 
-    // Spawn dust burst if player just placed a new item
-    if (!force && !eraChanged && game.items.length > this.prevItemCount) {
-      const newest = game.items[game.items.length - 1];
-      if (newest) {
-        const [wx, wz] = this.itemWorldCenter(newest);
-        this.particles.spawnPlacementBurst(wx, wz);
+      this.clearPlacedItemMeshes();
+      const batched = buildPlacedItemsInstanced(
+        game.items,
+        eraIdx,
+        store.movingItemUid,
+        this.modelFactory,
+        this.gridOffsetX,
+        this.gridOffsetZ,
+        this.placedGroup,
+        wantShadows,
+      );
+      this.placedItemMeshes = batched.meshes;
+      this.itemNightGlowMats = batched.nightGlowMats;
+      this.itemBlinkMats = batched.blinkMats;
+
+      this.placedItemMap.clear();
+      this.particleSourceItems = [];
+      for (let i = 0; i < game.items.length; i++) {
+        const it = game.items[i];
+        this.placedItemMap.set(it.uid, it);
+        if (PARTICLE_ITEM_IDS.has(it.itemId)) {
+          this.particleSourceItems.push(it);
+        }
       }
-    }
-    this.prevItemCount = game.items.length;
 
-    // Remove sold items
-    for (const [uid, entry] of this.placedEntries.entries()) {
-      if (!liveUids.has(uid)) {
-        this.placedGroup.remove(entry.built.group);
-        this.placedEntries.delete(uid);
-      }
-    }
-
-    // 3. Sync quality settings (pixelScale, shadows)
-    if (game.settings.pixelScale !== this.pipeline.pixelScale) {
-      this.handleResize();
-    }
-    const wantShadows = !this.isSoftwareGl && game.settings.shadows;
-    if (this.renderer.shadowMap.enabled !== wantShadows) {
-      this.renderer.shadowMap.enabled = wantShadows;
-      this.sunLight.castShadow = wantShadows;
+      this.lastItemsRef = game.items;
+      this.lastItemsEra = eraIdx;
+      this.lastItemsMovingUid = store.movingItemUid;
+      this.lastItemsShadows = wantShadows;
+      this.shadowDirty = true;
     }
 
     // 4. Sync minimap camera jump requests & mobile touch camera commands
@@ -833,19 +1000,23 @@ export class LabSceneController {
       this.highlightScene.clear();
       this.highlightClone = null;
       if (highlightUid) {
-        const entry = this.placedEntries.get(highlightUid);
-        if (entry) {
-          this.highlightClone = entry.built.group.clone();
+        const item = this.placedItemMap.get(highlightUid);
+        if (item) {
+          const built = this.modelFactory.createModel(item.itemId, game.eraIndex);
+          const [wx, wz] = this.itemWorldCenter(item);
+          built.group.position.set(wx, 0.03, wz);
+          built.group.rotation.y = (item.rotation * Math.PI) / 2;
+          this.highlightClone = built.group;
           this.highlightScene.add(this.highlightClone);
         }
       }
     }
 
     if (selectedItemUid && store.screen === 'playing') {
-      const entry = this.placedEntries.get(selectedItemUid);
-      if (entry) {
-        const [w, d] = getRotatedFootprint(entry.itemId, entry.rotation);
-        const [wx, wz] = this.itemWorldCenter(entry);
+      const item = this.placedItemMap.get(selectedItemUid);
+      if (item) {
+        const [w, d] = getRotatedFootprint(item.itemId, item.rotation);
+        const [wx, wz] = this.itemWorldCenter(item);
         this.selectionRing.visible = true;
         this.selectionRing.position.set(wx, 0.045, wz);
         this.selectionRing.scale.set(Math.max(w, d) * 1.15, 1, Math.max(w, d) * 1.15);
@@ -885,42 +1056,43 @@ export class LabSceneController {
     this.hemiLight.intensity = 0.62 + dayFactor * 0.56;
 
     // Night emissive glow for architectural windows, streetlamps & monitors + blinking server LEDs
+    // Only touches ~12 shared materials instead of traversing 2,000+ meshes every frame!
     const nightGlow = 1 - dayFactor * 0.72;
-    for (const winMesh of this.shellWindowMeshes) {
-      const mat = winMesh.material as THREE.MeshToonMaterial;
-      mat.emissiveIntensity = 0.2 + nightGlow * 0.78;
+    const winEmissive = 0.2 + nightGlow * 0.78;
+    for (let i = 0; i < this.shellWindowMats.length; i++) {
+      this.shellWindowMats[i].emissiveIntensity = winEmissive;
     }
-    for (const glowMesh of this.shellGlowMeshes) {
-      const mat = glowMesh.material as THREE.MeshToonMaterial;
-      mat.emissiveIntensity = 0.65 + Math.sin(this.elapsedRealSec * 2.6) * 0.25 + nightGlow * 0.35;
+    const shellPulse = 0.65 + Math.sin(this.elapsedRealSec * 2.6) * 0.25 + nightGlow * 0.35;
+    for (let i = 0; i < this.shellGlowMats.length; i++) {
+      this.shellGlowMats[i].emissiveIntensity = shellPulse;
     }
-    for (const bulb of this.streetLampBulbs) {
-      const mat = bulb.material as THREE.MeshToonMaterial;
-      mat.emissiveIntensity = 0.2 + nightGlow * 1.1;
+    if (this.streetLampBulbMat) {
+      this.streetLampBulbMat.emissiveIntensity = 0.2 + nightGlow * 1.1;
     }
 
     const isTraining = game.trainingJobs.length > 0;
     const blinkPhase = this.elapsedRealSec * (isTraining ? 7.5 : 3.2);
-
-    let idx = 0;
-    for (const entry of this.placedEntries.values()) {
-      for (const m of entry.built.nightGlowMeshes) {
-        const mat = m.material as THREE.MeshToonMaterial;
-        mat.emissiveIntensity = 0.22 + nightGlow * 0.85;
-      }
-      for (const m of entry.built.blinkMeshes) {
-        const mat = m.material as THREE.MeshToonMaterial;
-        const pulse = Math.sin(blinkPhase + idx * 1.37) > 0.05 ? 1.25 : 0.24;
-        mat.emissiveIntensity = pulse;
-        idx++;
-      }
+    const itemGlow = 0.22 + nightGlow * 0.85;
+    for (let i = 0; i < this.itemNightGlowMats.length; i++) {
+      this.itemNightGlowMats[i].emissiveIntensity = itemGlow;
+    }
+    for (let i = 0; i < this.itemBlinkMats.length; i++) {
+      this.itemBlinkMats[i].emissiveIntensity =
+        Math.sin(blinkPhase + i * 1.65) > 0.05 ? 1.25 : 0.24;
     }
 
-    // Spawn ambient steam puffs, cooling mist & quantum/singularity compute sparks
+    // Spawn ambient steam puffs, cooling mist & quantum/singularity compute sparks (capped per tier!)
+    const profile = PERF_PROFILES[this.effectivePerfTier];
     this.particleSpawnAccum += dt;
-    if (this.particleSpawnAccum >= 0.26) {
+    if (this.particleSpawnAccum >= profile.particleInterval && this.particleSourceItems.length > 0) {
       this.particleSpawnAccum = 0;
-      for (const entry of this.placedEntries.values()) {
+      const src = this.particleSourceItems;
+      const maxSpawns = profile.maxParticlesPerTick;
+      // Rotate starting offset so every tower/rig across a 15-building campus emits evenly
+      const startIdx = Math.floor(this.elapsedRealSec * 7) % src.length;
+      let spawned = 0;
+      for (let k = 0; k < src.length && spawned < maxSpawns; k++) {
+        const entry = src[(startIdx + k) % src.length];
         const [wx, wz] = this.itemWorldCenter(entry);
         if (entry.itemId === 'cooling_tower' || entry.itemId === 'cryo_spire') {
           this.particles.spawn(
@@ -934,8 +1106,10 @@ export class LabSceneController {
             1.35,
             entry.itemId === 'cryo_spire' ? '#8de4ff' : '#faf7eb',
           );
+          spawned++;
         } else if (entry.itemId === 'coffee_machine' && Math.random() < 0.35) {
           this.particles.spawn(wx, 0.98, wz, 0.05, 0.35, 0.02, 0.07, 0.9, '#faf7eb');
+          spawned++;
         } else if (
           (entry.itemId === 'quantum_core' || entry.itemId === 'singularity_core') &&
           Math.random() < (isTraining ? 0.65 : 0.35)
@@ -951,6 +1125,7 @@ export class LabSceneController {
             0.85,
             entry.itemId === 'singularity_core' ? '#ffe478' : '#68f2ff',
           );
+          spawned++;
         } else if (entry.itemId === 'fusion_reactor' && Math.random() < 0.45) {
           this.particles.spawn(
             wx + (Math.random() - 0.5) * 0.5,
@@ -963,6 +1138,7 @@ export class LabSceneController {
             0.8,
             '#68f2ff',
           );
+          spawned++;
         } else if (
           isTraining &&
           (entry.itemId === 'gpu_rig_2010' ||
@@ -981,6 +1157,7 @@ export class LabSceneController {
             0.65,
             entry.itemId === 'liquid_cluster' ? '#9966cc' : '#8ce063',
           );
+          spawned++;
         }
       }
     }
@@ -988,24 +1165,29 @@ export class LabSceneController {
 
   private clearBuildingShell(): void {
     this.buildingShellGroup.clear();
+    for (const m of this.shellInstancedMeshes) {
+      m.dispose();
+    }
+    this.shellInstancedMeshes = [];
     for (const item of this.shellDisposables) {
       item.dispose();
     }
     this.shellDisposables = [];
     this.wallAssemblies = [];
-    this.shellWindowMeshes = [];
-    this.shellGlowMeshes = [];
+    this.shellWindowMats = [];
+    this.shellGlowMats = [];
   }
 
   /**
-   * Builds separate Era-themed architectural cutaway buildings for Main HQ + every owned
-   * Land Expansion building, plus paved stone campus walkways and subtle survey boundary
-   * corner markers on unowned expandable land plots!
+   * Builds batched InstancedMesh Era-themed architectural cutaway buildings for Main HQ +
+   * all 14 owned Land Expansion buildings (up to 6F skyscrapers), paved campus walkways,
+   * and subtle survey stakes in ~18 visible draw calls total (down from ~3,300!).
    */
   private rebuildCampusShell(
     buildings: BuildingFootprint[],
     ownedLandIds: string[],
     eraIdx: number,
+    allowShadows: boolean,
   ): void {
     this.clearBuildingShell();
     const theme = ERA_BUILDING_THEMES[eraIdx] ?? ERA_BUILDING_THEMES[0];
@@ -1077,6 +1259,8 @@ export class LabSceneController {
         gradientMap: this.textures.toonGradient,
       }),
     );
+    this.shellWindowMats.push(glassMat, dcGlassMat);
+
     const accentMat = theme.accentStrip
       ? track(
           new THREE.MeshToonMaterial({
@@ -1087,6 +1271,9 @@ export class LabSceneController {
           }),
         )
       : null;
+    if (accentMat && theme.accentEmissive) {
+      this.shellGlowMats.push(accentMat);
+    }
 
     const walkwayMat = track(
       new THREE.MeshToonMaterial({
@@ -1094,17 +1281,69 @@ export class LabSceneController {
         gradientMap: this.textures.toonGradient,
       }),
     );
+    const stakePostMat = track(
+      new THREE.MeshToonMaterial({ color: '#e6b84c', gradientMap: this.textures.toonGradient }),
+    );
+    const stakeBaseMat = track(
+      new THREE.MeshToonMaterial({ color: '#45506b', gradientMap: this.textures.toonGradient }),
+    );
+    const roofUnitMat = track(
+      new THREE.MeshToonMaterial({
+        color: eraIdx >= 5 ? '#d0dde8' : '#7b8499',
+        gradientMap: this.textures.toonGradient,
+      }),
+    );
+    const antennaMat = track(
+      new THREE.MeshToonMaterial({
+        color: eraIdx >= 6 ? '#ffe478' : '#a9b5cc',
+        gradientMap: this.textures.toonGradient,
+      }),
+    );
+    const beaconMats = new Map<string, THREE.MeshToonMaterial>();
+    const getBeaconMat = (hex: string): THREE.MeshToonMaterial => {
+      let m = beaconMats.get(hex);
+      if (!m) {
+        m = track(
+          new THREE.MeshToonMaterial({
+            color: hex,
+            emissive: hex,
+            emissiveIntensity: 0.9,
+            gradientMap: this.textures.toonGradient,
+          }),
+        );
+        beaconMats.set(hex, m);
+        this.shellGlowMats.push(m);
+      }
+      return m;
+    };
+
+    // Static bucket for always-visible ground walkways, survey stakes, corner plinths & curbs
+    const staticBucket = new InstancedBoxBucket();
+    // 4 compass buckets (all N/S/W/E walls across all 15 buildings batched into 4 cutaway groups!)
+    const sideBuckets: Record<'north' | 'south' | 'west' | 'east', InstancedBoxBucket> = {
+      north: new InstancedBoxBucket(),
+      south: new InstancedBoxBucket(),
+      west: new InstancedBoxBucket(),
+      east: new InstancedBoxBucket(),
+    };
 
     const addWalkway = (x1: number, x2: number, z1: number, z2: number) => {
       const wx1 = x1 - this.gridOffsetX;
       const wx2 = x2 + 1 - this.gridOffsetX;
       const wz1 = z1 - this.gridOffsetZ;
       const wz2 = z2 + 1 - this.gridOffsetZ;
-      const geo = track(new THREE.BoxGeometry(wx2 - wx1, 0.055, wz2 - wz1));
-      const mesh = new THREE.Mesh(geo, walkwayMat);
-      mesh.position.set((wx1 + wx2) * 0.5, 0.002, (wz1 + wz2) * 0.5);
-      mesh.receiveShadow = true;
-      this.buildingShellGroup.add(mesh);
+      staticBucket.addBox(
+        walkwayMat,
+        (wx1 + wx2) * 0.5,
+        0.002,
+        (wz1 + wz2) * 0.5,
+        wx2 - wx1,
+        0.055,
+        wz2 - wz1,
+        0,
+        false,
+        true,
+      );
     };
 
     // Main front entrance stone boulevard connecting the south road to Main HQ (and South Plaza if built)
@@ -1121,36 +1360,16 @@ export class LabSceneController {
     // Dynamic paved campus walkway network across all 5 columns & 3 rows as land parcels are acquired!
     const hasAny = (ids: string[]) => ids.some((id) => ownedLandIds.includes(id));
     if (hasAny(['east_datacenter', 'ne_superpod', 'se_datacenter'])) {
-      addWalkway(
-        25,
-        25,
-        hasAny(['ne_superpod']) ? 4 : 14,
-        hasAny(['se_datacenter']) ? 35 : 25,
-      );
+      addWalkway(25, 25, hasAny(['ne_superpod']) ? 4 : 14, hasAny(['se_datacenter']) ? 35 : 25);
     }
     if (hasAny(['west_annex', 'nw_innovation', 'sw_campus'])) {
-      addWalkway(
-        14,
-        14,
-        hasAny(['nw_innovation']) ? 4 : 14,
-        hasAny(['sw_campus']) ? 35 : 25,
-      );
+      addWalkway(14, 14, hasAny(['nw_innovation']) ? 4 : 14, hasAny(['sw_campus']) ? 35 : 25);
     }
     if (hasAny(['far_east_mega', 'far_east_north', 'far_east_south'])) {
-      addWalkway(
-        32,
-        32,
-        hasAny(['far_east_north']) ? 4 : 14,
-        hasAny(['far_east_south']) ? 35 : 25,
-      );
+      addWalkway(32, 32, hasAny(['far_east_north']) ? 4 : 14, hasAny(['far_east_south']) ? 35 : 25);
     }
     if (hasAny(['far_west_labs', 'far_west_north', 'far_west_south'])) {
-      addWalkway(
-        7,
-        7,
-        hasAny(['far_west_north']) ? 4 : 14,
-        hasAny(['far_west_south']) ? 35 : 25,
-      );
+      addWalkway(7, 7, hasAny(['far_west_north']) ? 4 : 14, hasAny(['far_west_south']) ? 35 : 25);
     }
     if (hasAny(['north_research', 'ne_superpod', 'nw_innovation', 'far_east_north', 'far_west_north'])) {
       const px1 = hasAny(['far_west_north']) ? 3 : hasAny(['nw_innovation']) ? 10 : 16;
@@ -1163,15 +1382,7 @@ export class LabSceneController {
       addWalkway(px1, px2, 27, 27);
     }
 
-    // Subtle expandable land parcel corner survey stakes across all unowned lots in the 40x40 estate!
-    const stakePostMat = track(
-      new THREE.MeshToonMaterial({ color: '#e6b84c', gradientMap: this.textures.toonGradient }),
-    );
-    const stakeBaseMat = track(
-      new THREE.MeshToonMaterial({ color: '#45506b', gradientMap: this.textures.toonGradient }),
-    );
-    const stakeGeo = track(new THREE.BoxGeometry(0.14, 0.52, 0.14));
-    const stakeCapGeo = track(new THREE.BoxGeometry(0.22, 0.12, 0.22));
+    // Subtle expandable land parcel corner survey stakes across all unowned lots
     for (const parcel of LAND_PARCELS) {
       if (ownedLandIds.includes(parcel.id)) continue;
       const pLeft = parcel.minX - this.gridOffsetX + 0.12;
@@ -1184,28 +1395,10 @@ export class LabSceneController {
         [pLeft, pBottom],
         [pRight, pBottom],
       ]) {
-        const post = new THREE.Mesh(stakeGeo, stakeBaseMat);
-        post.position.set(sx, 0.26, sz);
-        this.buildingShellGroup.add(post);
-        const cap = new THREE.Mesh(stakeCapGeo, stakePostMat);
-        cap.position.set(sx, 0.54, sz);
-        this.buildingShellGroup.add(cap);
+        staticBucket.addBox(stakeBaseMat, sx, 0.26, sz, 0.14, 0.52, 0.14, 0, false, false);
+        staticBucket.addBox(stakePostMat, sx, 0.54, sz, 0.22, 0.12, 0.22, 0, false, false);
       }
     }
-
-    const cornerCurbGeo = track(new THREE.BoxGeometry(wallThick + 0.14, curbH + 0.08, wallThick + 0.14));
-    const roofUnitMat = track(
-      new THREE.MeshToonMaterial({
-        color: eraIdx >= 5 ? '#d0dde8' : '#7b8499',
-        gradientMap: this.textures.toonGradient,
-      }),
-    );
-    const antennaMat = track(
-      new THREE.MeshToonMaterial({
-        color: eraIdx >= 6 ? '#ffe478' : '#a9b5cc',
-        gradientMap: this.textures.toonGradient,
-      }),
-    );
 
     const buildSingleBuilding = (b: BuildingFootprint) => {
       const wLeft = b.minX - this.gridOffsetX;
@@ -1234,218 +1427,278 @@ export class LabSceneController {
         [wRight + wallThick * 0.5, wBottom + wallThick * 0.5],
       ];
       for (const [px, pz] of corners) {
-        const post = new THREE.Mesh(cornerCurbGeo, baseMat);
-        post.position.set(px, (curbH + 0.08) * 0.5, pz);
-        post.castShadow = true;
-        post.receiveShadow = true;
-        this.buildingShellGroup.add(post);
+        staticBucket.addBox(
+          baseMat,
+          px,
+          (curbH + 0.08) * 0.5,
+          pz,
+          wallThick + 0.14,
+          curbH + 0.08,
+          wallThick + 0.14,
+          0,
+          allowShadows,
+          true,
+        );
       }
 
       const buildWallSide = (
         side: 'north' | 'south' | 'west' | 'east',
-        nx: number,
-        nz: number,
         length: number,
         posX: number,
         posZ: number,
         rotY: number,
       ) => {
-        const wallRoot = new THREE.Group();
-        wallRoot.position.set(posX, 0, posZ);
-        wallRoot.rotation.y = rotY;
-        this.buildingShellGroup.add(wallRoot);
+        const cos = Math.cos(rotY);
+        const sin = Math.sin(rotY);
+        const bucket = sideBuckets[side];
 
-        const curbGeo = track(new THREE.BoxGeometry(length + wallThick * 2, curbH, wallThick + 0.04));
-        const curbMesh = new THREE.Mesh(curbGeo, baseMat);
-        curbMesh.position.set(0, curbH * 0.5, 0);
-        curbMesh.castShadow = true;
-        curbMesh.receiveShadow = true;
-        wallRoot.add(curbMesh);
+        // Helper transforming local wall coords (lx, lyAboveCurb, lz) -> compass upperGroup coords
+        const addUpper = (
+          mat: THREE.Material,
+          lx: number,
+          ly: number,
+          lz: number,
+          sx: number,
+          sy: number,
+          sz: number,
+          castSh = false,
+          recvSh = false,
+        ) => {
+          const wx = posX + lx * cos + lz * sin;
+          const wz = posZ - lx * sin + lz * cos;
+          bucket.addBox(mat, wx, ly, wz, sx, sy, sz, rotY, allowShadows && castSh, recvSh);
+        };
+
+        // Ground curb (always visible even when front wall is cut away)
+        staticBucket.addBox(
+          baseMat,
+          posX,
+          curbH * 0.5,
+          posZ,
+          length + wallThick * 2,
+          curbH,
+          wallThick + 0.04,
+          rotY,
+          allowShadows,
+          true,
+        );
 
         if (accentMat && (eraIdx >= 5 || isDC)) {
-          const curbGlowGeo = track(new THREE.BoxGeometry(length + wallThick, 0.05, wallThick + 0.07));
-          const curbGlow = new THREE.Mesh(curbGlowGeo, accentMat);
-          curbGlow.position.set(0, curbH - 0.03, 0);
-          wallRoot.add(curbGlow);
-          this.shellGlowMeshes.push(curbGlow);
+          staticBucket.addBox(
+            accentMat,
+            posX,
+            curbH - 0.03,
+            posZ,
+            length + wallThick,
+            0.05,
+            wallThick + 0.07,
+            rotY,
+            false,
+            false,
+          );
         }
 
-        const upperGroup = new THREE.Group();
-        upperGroup.position.set(0, curbH, 0);
-        wallRoot.add(upperGroup);
-
         // Full multi-story wall core (rises cleanly 1F..6F!)
-        const innerBodyGeo = track(new THREE.BoxGeometry(length + wallThick * 1.8, totalUpperH, wallThick * 0.58));
-        const innerBody = new THREE.Mesh(innerBodyGeo, wallMainMat);
-        innerBody.position.set(0, totalUpperH * 0.5, wallThick * 0.21);
-        innerBody.castShadow = true;
-        innerBody.receiveShadow = true;
-        upperGroup.add(innerBody);
-
-        const outerBodyGeo = track(new THREE.BoxGeometry(length + wallThick * 1.8, totalUpperH, wallThick * 0.46));
-        const outerBody = new THREE.Mesh(outerBodyGeo, bExtMat);
-        outerBody.position.set(0, totalUpperH * 0.5, -wallThick * 0.25);
-        outerBody.castShadow = true;
-        outerBody.receiveShadow = true;
-        upperGroup.add(outerBody);
+        addUpper(
+          wallMainMat,
+          0,
+          totalUpperH * 0.5,
+          wallThick * 0.21,
+          length + wallThick * 1.8,
+          totalUpperH,
+          wallThick * 0.58,
+          true,
+          true,
+        );
+        addUpper(
+          bExtMat,
+          0,
+          totalUpperH * 0.5,
+          -wallThick * 0.25,
+          length + wallThick * 1.8,
+          totalUpperH,
+          wallThick * 0.46,
+          true,
+          true,
+        );
 
         // Top skyscraper roof parapet cornice
-        const capGeo = track(new THREE.BoxGeometry(length + wallThick * 2.2, 0.18, wallThick + 0.18));
-        const cap = new THREE.Mesh(capGeo, bCorniceMat);
-        cap.position.set(0, totalUpperH + 0.07, 0);
-        cap.castShadow = true;
-        upperGroup.add(cap);
+        addUpper(
+          bCorniceMat,
+          0,
+          totalUpperH + 0.07,
+          0,
+          length + wallThick * 2.2,
+          0.18,
+          wallThick + 0.18,
+          true,
+          false,
+        );
 
         // Horizontal floor-slab divider bands between every story (2F..6F)
         if (stories > 1) {
-          const beltGeo = track(new THREE.BoxGeometry(length + wallThick * 2.1, 0.14, wallThick + 0.14));
           for (let s = 1; s < stories; s++) {
             const beltY = story1H + (s - 1) * upperStoryH;
-            const belt = new THREE.Mesh(beltGeo, bCorniceMat);
-            belt.position.set(0, beltY, 0);
-            belt.castShadow = true;
-            upperGroup.add(belt);
+            addUpper(
+              bCorniceMat,
+              0,
+              beltY,
+              0,
+              length + wallThick * 2.1,
+              0.14,
+              wallThick + 0.14,
+              true,
+              false,
+            );
           }
         }
 
         // Era glowing crown trim strip along the top story
         if (accentMat) {
-          const stripGeo = track(new THREE.BoxGeometry(length + wallThick * 1.9, 0.09, wallThick + 0.09));
-          const strip = new THREE.Mesh(stripGeo, accentMat);
-          strip.position.set(0, totalUpperH - 0.16, 0);
-          upperGroup.add(strip);
-          if (theme.accentEmissive) this.shellGlowMeshes.push(strip);
+          addUpper(
+            accentMat,
+            0,
+            totalUpperH - 0.16,
+            0,
+            length + wallThick * 1.9,
+            0.09,
+            wallThick + 0.09,
+            false,
+            false,
+          );
         }
 
         const bayCount = Math.max(2, Math.floor(length / 2.3));
         const baySpacing = length / bayCount;
         const winW = Math.min(1.45, baySpacing * 0.64);
 
-        const pilasterGeo = track(new THREE.BoxGeometry(0.22, totalUpperH + 0.08, wallThick + 0.13));
-        // Full-height structural corner + bay pilasters
+        // Full-height structural bay pilasters
         for (let idxB = 0; idxB < bayCount - 1; idxB++) {
           const px = -length * 0.5 + (idxB + 1) * baySpacing;
-          const pilaster = new THREE.Mesh(pilasterGeo, pilasterMat);
-          pilaster.position.set(px, totalUpperH * 0.5, 0);
-          pilaster.castShadow = true;
-          upperGroup.add(pilaster);
+          addUpper(
+            pilasterMat,
+            px,
+            totalUpperH * 0.5,
+            0,
+            0.22,
+            totalUpperH + 0.08,
+            wallThick + 0.13,
+            true,
+            false,
+          );
         }
 
         // Stacked illuminated window bays for EVERY story (1F .. stories)
         const winH1 = isDC ? story1H * 0.38 : eraIdx >= 2 ? story1H * 0.62 : story1H * 0.48;
         const winHUpper = isDC ? upperStoryH * 0.42 : eraIdx >= 2 ? upperStoryH * 0.62 : upperStoryH * 0.52;
 
-        const winFrameGeo1 = track(new THREE.BoxGeometry(winW + 0.14, winH1 + 0.14, wallThick + 0.08));
-        const winGlassGeo1 = track(new THREE.BoxGeometry(winW, winH1, wallThick + 0.11));
-        const mullionGeo1 = track(new THREE.BoxGeometry(0.06, winH1, wallThick + 0.13));
-        const sillGeo = track(new THREE.BoxGeometry(winW + 0.24, 0.08, wallThick + 0.16));
-
-        const winFrameGeoU =
-          stories > 1 ? track(new THREE.BoxGeometry(winW + 0.14, winHUpper + 0.12, wallThick + 0.08)) : null;
-        const winGlassGeoU =
-          stories > 1 ? track(new THREE.BoxGeometry(winW, winHUpper, wallThick + 0.11)) : null;
-        const mullionGeoU =
-          stories > 1 ? track(new THREE.BoxGeometry(0.06, winHUpper, wallThick + 0.13)) : null;
-
         for (let s = 0; s < stories; s++) {
           const floorBaseY = s === 0 ? 0 : story1H + (s - 1) * upperStoryH;
           const curH = s === 0 ? story1H : upperStoryH;
           const curWinH = s === 0 ? winH1 : winHUpper;
           const curWinY = floorBaseY + (isDC ? curH * 0.58 : curH * 0.52);
-          const fGeo = s === 0 ? winFrameGeo1 : winFrameGeoU!;
-          const gGeo = s === 0 ? winGlassGeo1 : winGlassGeoU!;
-          const mGeo = s === 0 ? mullionGeo1 : mullionGeoU!;
 
           for (let idxB = 0; idxB < bayCount; idxB++) {
             const bx = -length * 0.5 + (idxB + 0.5) * baySpacing;
             const isDoorBay = s === 0 && side === 'south' && idxB === Math.floor(bayCount / 2);
             if (isDoorBay) {
-              const doorFrameGeo = track(new THREE.BoxGeometry(1.45, story1H * 0.82, wallThick + 0.1));
-              const doorFrame = new THREE.Mesh(doorFrameGeo, frameMat);
-              doorFrame.position.set(bx, story1H * 0.41, 0);
-              upperGroup.add(doorFrame);
-
-              const doorGlassGeo = track(new THREE.BoxGeometry(1.2, story1H * 0.72, wallThick + 0.12));
-              const doorGlass = new THREE.Mesh(doorGlassGeo, bGlassMat);
-              doorGlass.position.set(bx, story1H * 0.38, 0);
-              upperGroup.add(doorGlass);
-              this.shellWindowMeshes.push(doorGlass);
+              addUpper(frameMat, bx, story1H * 0.41, 0, 1.45, story1H * 0.82, wallThick + 0.1);
+              addUpper(bGlassMat, bx, story1H * 0.38, 0, 1.2, story1H * 0.72, wallThick + 0.12);
             } else {
-              const frame = new THREE.Mesh(fGeo, frameMat);
-              frame.position.set(bx, curWinY, 0);
-              upperGroup.add(frame);
-
-              const glass = new THREE.Mesh(gGeo, bGlassMat);
-              glass.position.set(bx, curWinY, 0);
-              upperGroup.add(glass);
-              this.shellWindowMeshes.push(glass);
-
+              addUpper(
+                frameMat,
+                bx,
+                curWinY,
+                0,
+                winW + 0.14,
+                curWinH + (s === 0 ? 0.14 : 0.12),
+                wallThick + 0.08,
+              );
+              addUpper(bGlassMat, bx, curWinY, 0, winW, curWinH, wallThick + 0.11);
               if (eraIdx < 5) {
-                const mullion = new THREE.Mesh(mGeo, frameMat);
-                mullion.position.set(bx, curWinY, 0);
-                upperGroup.add(mullion);
+                addUpper(frameMat, bx, curWinY, 0, 0.06, curWinH, wallThick + 0.13);
               }
-
-              const sill = new THREE.Mesh(sillGeo, bCorniceMat);
-              sill.position.set(bx, curWinY - curWinH * 0.5 - 0.06, 0);
-              upperGroup.add(sill);
+              addUpper(
+                bCorniceMat,
+                bx,
+                curWinY - curWinH * 0.5 - 0.06,
+                0,
+                winW + 0.24,
+                0.08,
+                wallThick + 0.16,
+              );
             }
           }
         }
 
         // Multi-story skyscraper crown details (rooftop HVAC penthouse & comms/quantum spires on 2F+!)
         if (stories >= 2 && (side === 'north' || side === 'west')) {
-          const roofBoxGeo = track(new THREE.BoxGeometry(Math.min(2.2, length * 0.32), 0.48, wallThick + 0.35));
-          const roofBox = new THREE.Mesh(roofBoxGeo, roofUnitMat);
-          roofBox.position.set(0, totalUpperH + 0.38, -0.05);
-          roofBox.castShadow = true;
-          upperGroup.add(roofBox);
-
+          addUpper(
+            roofUnitMat,
+            0,
+            totalUpperH + 0.38,
+            -0.05,
+            Math.min(2.2, length * 0.32),
+            0.48,
+            wallThick + 0.35,
+            true,
+            false,
+          );
           if (stories >= 3) {
             const spireH = 0.65 + (stories - 2) * 0.25;
-            const spireGeo = track(new THREE.BoxGeometry(0.11, spireH, 0.11));
-            const spire = new THREE.Mesh(spireGeo, antennaMat);
-            spire.position.set(length * 0.28, totalUpperH + 0.16 + spireH * 0.5, 0);
-            upperGroup.add(spire);
+            addUpper(
+              antennaMat,
+              length * 0.28,
+              totalUpperH + 0.16 + spireH * 0.5,
+              0,
+              0.11,
+              spireH,
+              0.11,
+            );
           }
         }
 
         // Glowing corner rooftop beacons (always present on 4F+ skyscrapers or Era 5+)
         const beaconHex = theme.cornerBeacon ?? (stories >= 4 ? (isDC ? '#56c7ff' : '#ffe478') : null);
         if (beaconHex) {
-          const beaconMat = track(
-            new THREE.MeshToonMaterial({
-              color: beaconHex,
-              emissive: beaconHex,
-              emissiveIntensity: 0.9,
-              gradientMap: this.textures.toonGradient,
-            }),
-          );
-          const beaconGeo = track(new THREE.BoxGeometry(0.24, 0.24, 0.24));
+          const bMat = getBeaconMat(beaconHex);
           for (const endX of [-length * 0.5 - wallThick * 0.5, length * 0.5 + wallThick * 0.5]) {
-            const bMesh = new THREE.Mesh(beaconGeo, beaconMat);
-            bMesh.position.set(endX, totalUpperH + 0.28, 0);
-            upperGroup.add(bMesh);
-            this.shellGlowMeshes.push(bMesh);
+            addUpper(bMat, endX, totalUpperH + 0.28, 0, 0.24, 0.24, 0.24);
           }
         }
-
-        this.wallAssemblies.push({
-          nx,
-          nz,
-          upperGroup,
-          currentScaleY: 1,
-        });
       };
 
-      buildWallSide('north', 0, -1, spanX, cx, wTop - wallThick * 0.5, 0);
-      buildWallSide('south', 0, 1, spanX, cx, wBottom + wallThick * 0.5, Math.PI);
-      buildWallSide('west', -1, 0, spanZ, wLeft - wallThick * 0.5, cz, Math.PI / 2);
-      buildWallSide('east', 1, 0, spanZ, wRight + wallThick * 0.5, cz, -Math.PI / 2);
+      buildWallSide('north', spanX, cx, wTop - wallThick * 0.5, 0);
+      buildWallSide('south', spanX, cx, wBottom + wallThick * 0.5, Math.PI);
+      buildWallSide('west', spanZ, wLeft - wallThick * 0.5, cz, Math.PI / 2);
+      buildWallSide('east', spanZ, wRight + wallThick * 0.5, cz, -Math.PI / 2);
     };
 
     for (const b of buildings) {
       buildSingleBuilding(b);
+    }
+
+    // Emit all static walkways/curbs/stakes (~5 draw calls)
+    this.shellInstancedMeshes.push(...staticBucket.buildInto(this.buildingShellGroup));
+
+    // Emit the 4 batched compass upper-wall assemblies (~9 draw calls per visible direction!)
+    const compassDefs: Array<{ side: 'north' | 'south' | 'west' | 'east'; nx: number; nz: number }> = [
+      { side: 'north', nx: 0, nz: -1 },
+      { side: 'south', nx: 0, nz: 1 },
+      { side: 'west', nx: -1, nz: 0 },
+      { side: 'east', nx: 1, nz: 0 },
+    ];
+    for (const def of compassDefs) {
+      const upperGroup = new THREE.Group();
+      upperGroup.position.set(0, curbH, 0);
+      this.buildingShellGroup.add(upperGroup);
+      this.shellInstancedMeshes.push(...sideBuckets[def.side].buildInto(upperGroup));
+      this.wallAssemblies.push({
+        nx: def.nx,
+        nz: def.nz,
+        upperGroup,
+        currentScaleY: 1,
+      });
     }
 
     // Apply initial cutaway state immediately so frame 1 never flickers
@@ -1884,7 +2137,9 @@ export class LabSceneController {
     const h = Math.max(200, this.container.clientHeight || window.innerHeight);
     this.renderer.setSize(w, h);
     const scale = useGameStore.getState().game.settings.pixelScale;
-    this.pipeline.resize(w, h, scale);
+    const maxDim = PERF_PROFILES[this.effectivePerfTier].maxDim;
+    this.lastAppliedMaxDim = maxDim;
+    this.pipeline.resize(w, h, scale, maxDim);
   }
 
   private afterDraw(cb: () => void): void {
@@ -1924,13 +2179,33 @@ export class LabSceneController {
     if (this.disposed) return;
 
     const now = performance.now();
-    const rawDt = Math.min(0.1, Math.max(0.001, (now - this.lastTimeMs) / 1000));
+    const rawMs = now - this.lastTimeMs;
+    const rawDt = Math.min(0.1, Math.max(0.001, rawMs / 1000));
     this.lastTimeMs = now;
     this.elapsedRealSec += rawDt;
 
-    // Throttle simulation & React store updates to ~10Hz (every 0.1s) so HUD never churns at 60Hz
+    // Adaptive hardware-tier auto-scaling when in 'auto' mode on real GPUs
+    const currentMode: PerformanceMode = useGameStore.getState().game.settings.performanceMode ?? 'auto';
+    if (!this.isSoftwareGl && currentMode === 'auto' && document.visibilityState === 'visible') {
+      const clampedMs = Math.min(120, Math.max(4, rawMs));
+      this.avgFrameMs = this.avgFrameMs * 0.92 + clampedMs * 0.08;
+      if (this.avgFrameMs > 28 && this.effectivePerfTier !== 'low') {
+        this.slowFrameAccumSec += rawDt;
+        if (this.slowFrameAccumSec >= 2.2) {
+          this.slowFrameAccumSec = 0;
+          this.effectivePerfTier = this.effectivePerfTier === 'high' ? 'balanced' : 'low';
+          this.autoDetectedTier = this.effectivePerfTier;
+        }
+      } else {
+        this.slowFrameAccumSec = Math.max(0, this.slowFrameAccumSec - rawDt * 0.5);
+      }
+    }
+
+    const profile = PERF_PROFILES[this.effectivePerfTier];
+
+    // Throttle simulation & React store updates cleanly per tier so low-end CPUs never churn
     this.simAccumSec += rawDt;
-    if (this.simAccumSec >= 0.1) {
+    if (this.simAccumSec >= profile.simInterval) {
       const step = Math.min(0.25, this.simAccumSec);
       this.simAccumSec = 0;
       useGameStore.getState().tickSim(step);
@@ -1957,7 +2232,7 @@ export class LabSceneController {
     this.updateBuildGhostAndSelection();
     this.updateDayNightAndLEDs(rawDt);
 
-    // Smooth 60fps voxel staff & particle updates
+    // Smooth voxel staff & particle updates
     const freshStore = useGameStore.getState();
     this.staffRenderer.update(
       freshStore.game.staff,
@@ -1971,17 +2246,47 @@ export class LabSceneController {
     const { subX, subY } = this.updateCameraAndComputeSnap(rawDt);
     this.updateWallCutaway(rawDt);
 
+    // Throttled 4Hz shadow map refresh (instead of re-rendering shadow pass at 60Hz!)
+    if (this.renderer.shadowMap.enabled) {
+      this.shadowUpdateAccumSec += rawDt;
+      if (this.shadowDirty || this.shadowUpdateAccumSec >= 0.25) {
+        this.renderer.shadowMap.needsUpdate = true;
+        this.shadowDirty = false;
+        this.shadowUpdateAccumSec = 0;
+      }
+    }
+
     const settings = freshStore.game.settings;
     const isSellHover = freshStore.buildTool === 'sell' && this.hoveredItemUid !== null;
+    const freshProfile = PERF_PROFILES[this.effectivePerfTier];
 
+    this.renderer.info.reset();
     this.pipeline.render(this.scene, this.camera, {
       outlines: settings.outlines,
+      fastOutlines: freshProfile.fastOutlines,
       quantize: settings.paletteQuantize,
       subPixelTexelX: subX,
       subPixelTexelY: subY,
       highlightScene: this.highlightClone ? this.highlightScene : null,
       highlightColor: isSellHover ? '#e0534f' : '#faf7eb',
     });
+
+    // Expose lightweight non-UI perf metrics for profiling & automated QA
+    this.perfReportAccumSec += rawDt;
+    if (this.perfReportAccumSec >= 0.4) {
+      this.perfReportAccumSec = 0;
+      (window as unknown as Record<string, unknown>).__PROJECT_LABS_PERF__ = {
+        drawCalls: this.renderer.info.render.calls,
+        triangles: this.renderer.info.render.triangles,
+        fps: Math.round(1000 / Math.max(1, this.avgFrameMs)),
+        effectiveTier: this.effectivePerfTier,
+        mode: settings.performanceMode ?? 'auto',
+        rtWidth: this.pipeline.rtWidth,
+        rtHeight: this.pipeline.rtHeight,
+        itemsCount: freshStore.game.items.length,
+        staffCount: freshStore.game.staff.length,
+      };
+    }
 
     this.scheduleNextFrame();
   };
@@ -2004,12 +2309,19 @@ export class LabSceneController {
     window.removeEventListener('blur', this.onWindowBlur);
 
     this.clearBuildingShell();
+    this.clearPlacedItemMeshes();
+    clearItemTemplateCache();
+    for (const ft of FLOOR_TYPES) {
+      this.floorInstancedMeshes[ft].dispose();
+    }
+    this.floorTileGeo.dispose();
     this.pipeline.dispose();
     this.staffRenderer.dispose();
     this.particles.dispose();
     this.modelFactory.dispose();
     this.textures.dispose();
     Object.values(this.floorMaterials).forEach((m) => m.dispose());
+    this.streetLampBulbMat?.dispose();
     this.renderer.dispose();
     if (canvas.parentElement === this.container) {
       this.container.removeChild(canvas);

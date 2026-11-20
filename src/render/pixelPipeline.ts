@@ -31,6 +31,7 @@ const COMPOSITE_FRAG = /* glsl */ `
   uniform sampler2D tHighlight;
   uniform vec2 uTexelSize;
   uniform float uOutlinesEnabled;
+  uniform float uUseNormalOutline;
   uniform float uQuantizeEnabled;
   uniform float uHasHighlight;
   uniform vec3 uOutlineColor;
@@ -94,21 +95,24 @@ const COMPOSITE_FRAG = /* glsl */ `
       depthEdge += max(0.0, dD - dC);
       float depthOutline = step(0.0046, depthEdge);
 
-      // Normal crease outline (clean low-poly bevels & architectural edges)
-      vec3 nC = texture2D(tNormal, vUv).rgb * 2.0 - 1.0;
-      vec3 nL = texture2D(tNormal, vUv + vec2(-uTexelSize.x, 0.0)).rgb * 2.0 - 1.0;
-      vec3 nR = texture2D(tNormal, vUv + vec2( uTexelSize.x, 0.0)).rgb * 2.0 - 1.0;
-      vec3 nU = texture2D(tNormal, vUv + vec2(0.0,  uTexelSize.y)).rgb * 2.0 - 1.0;
-      vec3 nD = texture2D(tNormal, vUv + vec2(0.0, -uTexelSize.y)).rgb * 2.0 - 1.0;
+      // Normal crease outline (optional high-tier pass; skipped in fast depth-only mode to halve draw calls!)
+      float normalOutline = 0.0;
+      if (uUseNormalOutline > 0.5) {
+        vec3 nC = texture2D(tNormal, vUv).rgb * 2.0 - 1.0;
+        vec3 nL = texture2D(tNormal, vUv + vec2(-uTexelSize.x, 0.0)).rgb * 2.0 - 1.0;
+        vec3 nR = texture2D(tNormal, vUv + vec2( uTexelSize.x, 0.0)).rgb * 2.0 - 1.0;
+        vec3 nU = texture2D(tNormal, vUv + vec2(0.0,  uTexelSize.y)).rgb * 2.0 - 1.0;
+        vec3 nD = texture2D(tNormal, vUv + vec2(0.0, -uTexelSize.y)).rgb * 2.0 - 1.0;
 
-      float nDiff = 0.0;
-      nDiff = max(nDiff, 1.0 - dot(nC, nL));
-      nDiff = max(nDiff, 1.0 - dot(nC, nR));
-      nDiff = max(nDiff, 1.0 - dot(nC, nU));
-      nDiff = max(nDiff, 1.0 - dot(nC, nD));
-      float normalOutline = step(0.48, nDiff) * 0.22;
+        float nDiff = 0.0;
+        nDiff = max(nDiff, 1.0 - dot(nC, nL));
+        nDiff = max(nDiff, 1.0 - dot(nC, nR));
+        nDiff = max(nDiff, 1.0 - dot(nC, nU));
+        nDiff = max(nDiff, 1.0 - dot(nC, nD));
+        normalOutline = step(0.48, nDiff) * 0.22;
+      }
 
-      outlineFactor = max(depthOutline * 0.62, normalOutline);
+      outlineFactor = max(depthOutline * 0.64, normalOutline);
     }
 
     if (uQuantizeEnabled > 0.5) {
@@ -180,6 +184,7 @@ export class PixelRenderPipeline {
         tHighlight: { value: null },
         uTexelSize: { value: new THREE.Vector2(1 / 962, 1 / 542) },
         uOutlinesEnabled: { value: 1 },
+        uUseNormalOutline: { value: 1 },
         uQuantizeEnabled: { value: 0 },
         uHasHighlight: { value: 0 },
         uOutlineColor: { value: new THREE.Color('#231b1c') },
@@ -211,12 +216,17 @@ export class PixelRenderPipeline {
     this.resize(width, height, pixelScale);
   }
 
-  public resize(width: number, height: number, pixelScale: 1 | 2 | 3 = this.pixelScale): void {
+  public resize(
+    width: number,
+    height: number,
+    pixelScale: 1 | 2 | 3 = this.pixelScale,
+    maxDimOverride?: number,
+  ): void {
     this.pixelScale = pixelScale;
     const rawW = Math.floor(width / pixelScale);
     const rawH = Math.floor(height / pixelScale);
-    // Keep crisp native 1:1 low-poly clarity while capping extreme 4K targets for smooth 60fps
-    const maxDim = pixelScale === 1 ? 1600 : 1024;
+    // Keep crisp native low-poly clarity while capping fill-rate cleanly per performance tier
+    const maxDim = maxDimOverride ?? (pixelScale === 1 ? 1440 : 960);
     const clampScale = Math.max(rawW, rawH) > maxDim ? maxDim / Math.max(rawW, rawH) : 1;
     this.rtWidth = Math.max(240, Math.floor(rawW * clampScale));
     this.rtHeight = Math.max(140, Math.floor(rawH * clampScale));
@@ -277,6 +287,7 @@ export class PixelRenderPipeline {
     camera: THREE.OrthographicCamera,
     opts: {
       outlines: boolean;
+      fastOutlines?: boolean;
       quantize: boolean;
       subPixelTexelX: number;
       subPixelTexelY: number;
@@ -284,13 +295,23 @@ export class PixelRenderPipeline {
       highlightColor?: string;
     },
   ): void {
-    // Pass 1: Color + Depth at low-res
+    const hasHighlight = Boolean(opts.highlightScene && opts.highlightScene.children.length > 0);
+
+    // Direct-to-screen zero-overhead fast path when post-processing passes are all off at 1x scale
+    if (!opts.outlines && !opts.quantize && this.pixelScale === 1 && !hasHighlight) {
+      this.renderer.setRenderTarget(null);
+      this.renderer.render(scene, camera);
+      return;
+    }
+
+    // Pass 1: Color + Depth at target resolution
     this.renderer.setRenderTarget(this.colorTarget);
     this.renderer.clear();
     this.renderer.render(scene, camera);
 
-    // Pass 2: View-space Normals at low-res (if outlines enabled)
-    if (opts.outlines) {
+    // Pass 2: View-space Normals (ONLY on High tier; Low/Balanced use fast Depth-only 1px ink outlines!)
+    const useNormalPass = opts.outlines && !opts.fastOutlines;
+    if (useNormalPass) {
       const prevOverride = scene.overrideMaterial;
       const prevBg = scene.background;
       scene.overrideMaterial = this.normalMaterial;
@@ -304,7 +325,6 @@ export class PixelRenderPipeline {
     }
 
     // Pass 3: Highlight mask for hovered/selected object
-    const hasHighlight = Boolean(opts.highlightScene && opts.highlightScene.children.length > 0);
     if (hasHighlight && opts.highlightScene) {
       const prevOverride = opts.highlightScene.overrideMaterial;
       opts.highlightScene.overrideMaterial = this.highlightMaterial;
@@ -315,8 +335,9 @@ export class PixelRenderPipeline {
       opts.highlightScene.overrideMaterial = prevOverride;
     }
 
-    // Pass 4: Composite (1px outlines + 32-color palette quantization) at low-res
+    // Pass 4: Composite (1px outlines + optional 32-color palette quantization)
     this.compositeMat.uniforms.uOutlinesEnabled.value = opts.outlines ? 1 : 0;
+    this.compositeMat.uniforms.uUseNormalOutline.value = useNormalPass ? 1 : 0;
     this.compositeMat.uniforms.uQuantizeEnabled.value = opts.quantize ? 1 : 0;
     this.compositeMat.uniforms.uHasHighlight.value = hasHighlight ? 1 : 0;
     if (opts.highlightColor) {

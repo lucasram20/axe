@@ -1171,7 +1171,14 @@ export const useGameStore = create<GameStore>()(
   })),
 );
 
+const resourceSnapshotCache = new WeakMap<GameState, ReturnType<typeof computeResources>>();
+
 export function useResourceSnapshot() {
   const game = useGameStore((s) => s.game);
-  return computeResources(game);
+  let snap = resourceSnapshotCache.get(game);
+  if (!snap) {
+    snap = computeResources(game);
+    resourceSnapshotCache.set(game, snap);
+  }
+  return snap;
 }

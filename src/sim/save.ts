@@ -147,6 +147,7 @@ export function createInitialState(
       paletteQuantize: false,
       edgeScroll: false,
       muted: false,
+      performanceMode: 'auto',
     },
 
     notifications: [
@@ -326,6 +327,7 @@ export function migrateSave(raw: unknown): GameState | null {
           : (Math.min(3, Math.max(1, obj.settings?.pixelScale ?? 1)) as 1 | 2 | 3),
       paletteQuantize:
         obj.buildingTier === undefined ? false : Boolean(obj.settings?.paletteQuantize),
+      performanceMode: obj.settings?.performanceMode ?? 'auto',
     },
   };
 
