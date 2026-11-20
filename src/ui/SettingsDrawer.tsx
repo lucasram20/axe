@@ -2,6 +2,7 @@
  * Visual clarity, gameplay automation, PWA auto-update check, and Save / Reset drawer.
  */
 
+import { useState } from 'react';
 import { usePWAUpdate } from '../hooks/usePWAUpdate';
 import { useGameStore } from '../store/useGameStore';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -13,15 +14,26 @@ const SCALE_OPTIONS: Array<{ value: 1 | 2 | 3; label: string }> = [
 ];
 
 export function SettingsDrawer() {
+  const labName = useGameStore((s) => s.game.labName);
   const settings = useGameStore((s) => s.game.settings);
   const autoFurnish = useGameStore((s) => s.game.automation.autoFurnish);
+  const muteTrainingPopups = useGameStore((s) => s.muteTrainingPopups);
   const updateSettings = useGameStore((s) => s.updateSettings);
   const toggleAutomation = useGameStore((s) => s.toggleAutomation);
+  const toggleMuteTrainingPopups = useGameStore((s) => s.toggleMuteTrainingPopups);
+  const renameLab = useGameStore((s) => s.renameLab);
   const saveNow = useGameStore((s) => s.saveNow);
   const resetSave = useGameStore((s) => s.resetSave);
   const toggleDebug = useGameStore((s) => s.toggleDebug);
   const setActiveDrawer = useGameStore((s) => s.setActiveDrawer);
   const { checkForUpdates } = usePWAUpdate();
+  const [nameDraft, setNameDraft] = useState(labName);
+
+  const handleRenameSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!nameDraft.trim()) return;
+    renameLab(nameDraft);
+  };
 
   return (
     <section
@@ -30,7 +42,7 @@ export function SettingsDrawer() {
     >
       <div className="flex items-center justify-between pb-1.5 mb-2.5 border-b-2 border-[#2e344b]">
         <h2 className="font-pixel-display text-xs sm:text-sm text-[#ffe478]">
-          Graphics, Auto-Update &amp; Save Settings
+          Lab Identity, Graphics &amp; Save Settings
         </h2>
         <button
           type="button"
@@ -41,6 +53,32 @@ export function SettingsDrawer() {
           X
         </button>
       </div>
+
+      {/* Inline AI Lab Rename */}
+      <form
+        onSubmit={handleRenameSubmit}
+        className="pixel-inset p-2 mb-2.5 flex items-center gap-2 text-xs"
+      >
+        <label htmlFor="settings-lab-name" className="text-[#b8c0cf] whitespace-nowrap shrink-0">
+          AI Lab Name
+        </label>
+        <input
+          id="settings-lab-name"
+          type="text"
+          maxLength={28}
+          value={nameDraft}
+          onChange={(e) => setNameDraft(e.target.value)}
+          data-testid="settings-lab-name-input"
+          className="flex-1 min-w-0 bg-[#121626] border-2 border-[#394263] focus:border-[#ffe478] outline-none px-2 py-1 text-xs font-pixel-display text-[#faf7eb]"
+        />
+        <button
+          type="submit"
+          data-testid="settings-lab-name-save"
+          className="pixel-btn-gold px-2.5 py-1 text-[11px] font-pixel-display shrink-0"
+        >
+          Rename
+        </button>
+      </form>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
         <div className="pixel-inset p-2.5 space-y-2">
@@ -98,6 +136,20 @@ export function SettingsDrawer() {
               }`}
             >
               {autoFurnish ? 'ON' : 'OFF'}
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-[#b8c0cf]">Training Complete Popups</span>
+            <button
+              type="button"
+              onClick={toggleMuteTrainingPopups}
+              data-testid="settings-toggle-training-popups"
+              className={`px-3 py-1 font-pixel-display text-[11px] ${
+                !muteTrainingPopups ? 'pixel-btn-green' : 'pixel-btn'
+              }`}
+            >
+              {!muteTrainingPopups ? 'ON' : 'MUTED'}
             </button>
           </div>
         </div>

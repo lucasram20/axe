@@ -163,6 +163,13 @@ export interface ResourceSnapshot {
 
 export type BuildingTier = 0 | 1 | 2 | 3;
 
+export type LandParcelId =
+  | 'east_datacenter'
+  | 'north_research'
+  | 'west_annex'
+  | 'ne_superpod'
+  | 'nw_innovation';
+
 export interface GameState {
   version: number;
   labName: string;
@@ -188,8 +195,9 @@ export interface GameState {
   bonusCompute: number; // Debug or special grant compute
   extraGridPowerContracts: number; // Purchased via Auto-Buy Power
 
-  // Spatial world & HQ building tier
+  // Spatial world, HQ building tier & owned expansion land parcels
   buildingTier: BuildingTier;
+  ownedLandIds: LandParcelId[];
   gridWidth: number;
   gridHeight: number;
   floors: FloorType[]; // length = gridWidth * gridHeight

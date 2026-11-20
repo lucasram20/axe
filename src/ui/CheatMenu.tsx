@@ -18,6 +18,7 @@ export function CheatMenu() {
   const activeJobs = useGameStore((s) => s.game.trainingJobs.length);
   const eraIndex = useGameStore((s) => s.game.eraIndex);
   const buildingTier = useGameStore((s) => s.game.buildingTier ?? 0);
+  const ownedLandCount = useGameStore((s) => (s.game.ownedLandIds ?? []).length);
   const cheatPerfectModels = useGameStore((s) => Boolean(s.game.cheatPerfectModels));
   const cheatFreeBuild = useGameStore((s) => Boolean(s.game.cheatFreeBuild));
 
@@ -37,6 +38,7 @@ export function CheatMenu() {
   const cheatSpawnGeniuses = useGameStore((s) => s.cheatSpawnGeniuses);
   const cheatJumpToEra = useGameStore((s) => s.cheatJumpToEra);
   const cheatMaxBuildingAndDataCenter = useGameStore((s) => s.cheatMaxBuildingAndDataCenter);
+  const cheatUnlockAllLand = useGameStore((s) => s.cheatUnlockAllLand);
   const cheatMaxAllModels = useGameStore((s) => s.cheatMaxAllModels);
   const cheatTogglePerfectModels = useGameStore((s) => s.cheatTogglePerfectModels);
   const cheatToggleFreeBuild = useGameStore((s) => s.cheatToggleFreeBuild);
@@ -66,7 +68,7 @@ export function CheatMenu() {
               FOUNDER VAULT // OVERRIDE
             </div>
             <div className="text-[10px] sm:text-[11px] text-[#b0a89f] tabular-nums truncate">
-              ${Math.floor(cash).toLocaleString()} · HQ T{buildingTier + 1} ({tierInfo.name}) · Bonus +{bonusCompute.toLocaleString()} TF · Staff {staffCount}
+              ${Math.floor(cash).toLocaleString()} · HQ T{buildingTier + 1} ({tierInfo.name}) · {1 + ownedLandCount}/6 Bldgs · +{bonusCompute.toLocaleString()} TF · Staff {staffCount}
             </div>
           </div>
           <button
@@ -79,19 +81,27 @@ export function CheatMenu() {
           </button>
         </div>
 
-        {/* Section 1: Instant Facility & Hyperscale Data Center */}
+        {/* Section 1: Instant 6-Building Campus, Land & Hyperscale Data Centers */}
         <div className="pixel-inset p-2 mb-2">
           <div className="font-pixel-display text-[10px] sm:text-[11px] text-[#8de4ff] mb-1.5">
-            HQ BUILDING &amp; HYPERSCALE DATA CENTER
+            6-BUILDING CAMPUS, LAND &amp; DATA CENTERS
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
             <button
               type="button"
               onClick={cheatMaxBuildingAndDataCenter}
               data-testid="cheat-max-hq"
+              className="sm:col-span-2 pixel-btn pixel-btn-gold py-1.5 px-2 text-[11px] font-pixel-display"
+            >
+              MAX 6-BUILDING CAMPUS + DATA CENTERS
+            </button>
+            <button
+              type="button"
+              onClick={cheatUnlockAllLand}
+              data-testid="cheat-unlock-land"
               className="pixel-btn pixel-btn-gold py-1.5 px-2 text-[11px] font-pixel-display"
             >
-              MAX HQ + DATA/GPU CENTER
+              Buy All Land ({1 + ownedLandCount}/6 Bldgs)
             </button>
             <button
               type="button"
@@ -103,7 +113,7 @@ export function CheatMenu() {
             </button>
           </div>
           <div className="text-[10px] text-[#b0a89f] mt-1">
-            Deploys Max Tier 4 HQ with era-matched Hyperscale SuperPods, Quantum Cores (2045), or Singularity Cores (2100)!
+            Builds all 6 campus buildings (Main HQ, East Compute Wing, North Research, West Annex, NE SuperPod &amp; NW Park) with era-matched GPU, Quantum (2045), or Singularity (2100) clusters!
           </div>
         </div>
 

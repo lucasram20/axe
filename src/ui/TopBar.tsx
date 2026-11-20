@@ -64,8 +64,26 @@ export function TopBar() {
       className="pointer-events-auto fixed top-1.5 sm:top-2 [@media(max-height:500px)]:top-1 left-1.5 sm:left-2 right-1.5 sm:right-2 z-20 flex items-center justify-between gap-1.5 sm:gap-2 px-2 sm:px-3 py-1 sm:py-1.5 [@media(max-height:500px)]:px-2 [@media(max-height:500px)]:py-0.5 pixel-frame-gold"
       aria-label="Lab status bar"
     >
-      {/* Left: Financial & Core Compute Resources (single compact line, never wraps on landscape mobile!) */}
+      {/* Left: Lab Name (desktop) + Financial & Core Compute Resources (single compact line, never wraps on landscape mobile!) */}
       <div className="flex items-center gap-2 sm:gap-3 md:gap-4 min-w-0 overflow-hidden">
+        {/* Custom AI Lab Name (desktop lg+ only so mobile landscape stays ultra-spacious) */}
+        <div
+          className="hidden lg:flex flex-col leading-none shrink-0 max-w-[156px]"
+          title={`${game.labName} · ${1 + (game.ownedLandIds?.length ?? 0)}/6 Campus Buildings`}
+        >
+          <div
+            className="font-pixel-display text-xs text-[#faf7eb] truncate"
+            data-testid="hud-lab-name"
+          >
+            {game.labName}
+          </div>
+          <div className="text-[9px] text-[#8de4ff] tabular-nums mt-0.5">
+            {1 + (game.ownedLandIds?.length ?? 0)}/6 Bldgs
+          </div>
+        </div>
+
+        <div className="h-6 w-[2px] bg-[#2e344b] hidden lg:block" aria-hidden="true" />
+
         {/* Cash & income/sec */}
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0" title="Cash balance and net cashflow per second">
           <PixelIcon name="cash" size={16} />

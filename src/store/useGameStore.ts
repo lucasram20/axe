@@ -23,14 +23,19 @@ import {
 import {
   applyMaxHyperscaleHQ,
   autoFurnishLab,
+  buyLandParcel,
+  unlockAllCampusLand,
   upgradeBuildingTier,
 } from '../sim/facility';
 import { movePlacedItem, placeItem, sellPlacedItem } from '../sim/grid';
 import {
   createInitialState,
-  deserializeSave,
+  deleteGameSlot,
+  loadGameFromSlot,
+  sanitizeLabName,
   SAVE_STORAGE_KEY,
-  serializeSave,
+  saveGameToSlot,
+  type SaveSlotId,
 } from '../sim/save';
 import {
   fireStaff,
@@ -48,6 +53,7 @@ import {
 import {
   pushNotification,
   type GameState,
+  type LandParcelId,
   type OfflineProgressSummary,
   type QualitySettings,
   type RotationQuarter,
@@ -102,13 +108,20 @@ interface GameStore {
   cheatGodMood: boolean;
   cheatHyperTraining: boolean;
   cheatFreeCash: boolean;
+  muteTrainingPopups: boolean;
+  activeSaveSlot: SaveSlotId;
+  saveSlotsNonce: number;
   offlineSummary: OfflineProgressSummary | null;
   trainingResultModelId: string | null;
   lastEventOutcome: string | null;
 
   // Lifecycle & loop
-  startNewLab: () => void;
+  startNewLab: (customLabName?: string, slotId?: SaveSlotId) => void;
   continueLab: () => void;
+  loadSaveSlot: (slotId: SaveSlotId) => boolean;
+  saveToSlot: (slotId: SaveSlotId) => void;
+  deleteSaveSlot: (slotId: SaveSlotId) => void;
+  renameLab: (newName: string) => void;
   setScreen: (screen: ScreenMode) => void;
   tickSim: (dtRealSec: number) => void;
   setSpeed: (speed: 0 | 1 | 2 | 4) => void;
@@ -138,10 +151,12 @@ interface GameStore {
   chooseEventOption: (choiceId: string) => void;
   toggleAutomation: (key: 'autoQueueTraining' | 'autoBuyPower' | 'autoHireStaff' | 'autoFurnish') => void;
   upgradeBuilding: () => boolean;
+  buyLand: (parcelId: LandParcelId) => boolean;
   autoFurnishNow: () => void;
 
   // Settings & persistence
   updateSettings: (patch: Partial<QualitySettings>) => void;
+  toggleMuteTrainingPopups: () => void;
   saveNow: () => void;
   resetSave: () => void;
 
@@ -178,6 +193,7 @@ interface GameStore {
   cheatJumpToFrontierEra: () => void;
   cheatJumpToEra: (eraIndex: number) => void;
   cheatMaxBuildingAndDataCenter: () => void;
+  cheatUnlockAllLand: () => void;
   cheatMaxAllModels: () => void;
   cheatTogglePerfectModels: () => void;
   cheatToggleFreeBuild: () => void;
@@ -187,22 +203,13 @@ interface GameStore {
 }
 
 function loadSavedFromStorage(): GameState | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = window.localStorage.getItem(SAVE_STORAGE_KEY);
-    if (!raw) return null;
-    return deserializeSave(raw);
-  } catch {
-    return null;
-  }
+  return loadGameFromSlot('autosave');
 }
 
-function writeSaveToStorage(state: GameState): void {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(SAVE_STORAGE_KEY, serializeSave(state, Date.now()));
-  } catch {
-    // Ignore storage quota errors in private browsing
+function writeSaveToStorage(state: GameState, slotId: SaveSlotId = 'autosave'): void {
+  saveGameToSlot('autosave', state);
+  if (slotId !== 'autosave') {
+    saveGameToSlot(slotId, state);
   }
 }
 
@@ -240,7 +247,7 @@ export const useGameStore = create<GameStore>()(
     selectedStaffId: null,
     hoveredTile: null,
 
-    cameraBounds: { centerX: 9, centerZ: 8.5, halfW: 6.5, halfH: 5 },
+    cameraBounds: { centerX: 14, centerZ: 15, halfW: 8, halfH: 6 },
     cameraJumpTarget: null,
     cameraCommand: null,
 
@@ -249,18 +256,23 @@ export const useGameStore = create<GameStore>()(
     cheatGodMood: false,
     cheatHyperTraining: false,
     cheatFreeCash: false,
+    muteTrainingPopups: false,
+    activeSaveSlot: 'autosave',
+    saveSlotsNonce: 0,
     offlineSummary: null,
     trainingResultModelId: null,
     lastEventOutcome: null,
 
-    startNewLab: () => {
+    startNewLab: (customLabName, slotId = 'autosave') => {
       audioManager.play('click');
-      const fresh = createInitialState();
-      writeSaveToStorage(fresh);
+      const fresh = createInitialState(Date.now(), customLabName);
+      writeSaveToStorage(fresh, slotId);
       syncBodyState('playing');
       set((s) => {
         s.game = fresh;
         s.hasExistingSave = true;
+        s.activeSaveSlot = slotId;
+        s.saveSlotsNonce += 1;
         s.screen = 'playing';
         s.activeDrawer = null;
         s.buildTool = 'select';
@@ -275,26 +287,75 @@ export const useGameStore = create<GameStore>()(
     },
 
     continueLab: () => {
-      audioManager.play('click');
-      const loaded = loadSavedFromStorage();
-      if (!loaded) {
+      const ok = get().loadSaveSlot('autosave');
+      if (!ok) {
         get().startNewLab();
-        return;
       }
+    },
+
+    loadSaveSlot: (slotId) => {
+      audioManager.play('click');
+      const loaded = loadGameFromSlot(slotId);
+      if (!loaded) return false;
       const elapsedSec = Math.max(0, (Date.now() - loaded.lastSavedAtMs) / 1000);
       let summary: OfflineProgressSummary | null = null;
       if (elapsedSec >= BALANCE.minOfflineSecondsForModal) {
         summary = calculateOfflineProgress(loaded, elapsedSec);
       }
+      saveGameToSlot('autosave', loaded);
       audioManager.setMuted(loaded.settings.muted);
       syncBodyState('playing');
       set((s) => {
         s.game = loaded;
         s.hasExistingSave = true;
+        s.activeSaveSlot = slotId;
+        s.saveSlotsNonce += 1;
         s.screen = 'playing';
         s.offlineSummary = summary;
+        s.trainingResultModelId = null;
+        s.lastEventOutcome = null;
         s.activeDrawer = null;
       });
+      return true;
+    },
+
+    saveToSlot: (slotId) => {
+      const g = get().game;
+      writeSaveToStorage(g, slotId);
+      set((s) => {
+        s.hasExistingSave = true;
+        s.activeSaveSlot = slotId;
+        s.saveSlotsNonce += 1;
+        s.game.lastSavedAtMs = Date.now();
+        pushNotification(
+          s.game,
+          `Saved "${s.game.labName}" to ${slotId === 'autosave' ? 'Auto-Save' : slotId.replace('_', ' ').toUpperCase()}.`,
+          'good',
+        );
+      });
+      audioManager.play('click');
+    },
+
+    deleteSaveSlot: (slotId) => {
+      audioManager.play('click');
+      deleteGameSlot(slotId);
+      set((s) => {
+        s.hasExistingSave = loadSavedFromStorage() !== null;
+        s.saveSlotsNonce += 1;
+      });
+    },
+
+    renameLab: (newName) => {
+      const cleaned = sanitizeLabName(newName);
+      set((s) => {
+        s.game.labName = cleaned;
+        pushNotification(s.game, `AI Lab renamed to "${cleaned}".`, 'info');
+      });
+      writeSaveToStorage(get().game, get().activeSaveSlot);
+      set((s) => {
+        s.saveSlotsNonce += 1;
+      });
+      audioManager.play('click');
     },
 
     setScreen: (screen) => {
@@ -320,10 +381,11 @@ export const useGameStore = create<GameStore>()(
         return;
       }
 
-      if (state.game.activeEvent || state.offlineSummary) return;
+      // Pause sim while any blocking modal is open so fast compute / auto-train NEVER re-triggers stuck modals!
+      if (state.game.activeEvent || state.offlineSummary || state.trainingResultModelId) return;
 
       let completedModelId: string | null = null;
-      let hadEvent = state.game.activeEvent !== null;
+      const hadEvent = state.game.activeEvent !== null;
       set((s) => {
         s.game.lastCompletedModelId = null;
         const clampedDt = Math.min(0.15, dtRealSec);
@@ -346,7 +408,11 @@ export const useGameStore = create<GameStore>()(
 
         if (s.game.lastCompletedModelId) {
           completedModelId = s.game.lastCompletedModelId;
-          s.trainingResultModelId = completedModelId;
+          s.game.lastCompletedModelId = null;
+          // Never spam blocking completion popups when Auto-Queue Training is ON or popups are muted!
+          if (!s.game.automation.autoQueueTraining && !s.muteTrainingPopups) {
+            s.trainingResultModelId = completedModelId;
+          }
         }
       });
 
@@ -610,6 +676,19 @@ export const useGameStore = create<GameStore>()(
       return ok;
     },
 
+    buyLand: (parcelId) => {
+      let ok = false;
+      set((s) => {
+        const res = buyLandParcel(s.game, parcelId);
+        ok = res.ok;
+        if (!res.ok && res.reason) {
+          pushNotification(s.game, res.reason, 'warn');
+        }
+      });
+      audioManager.play(ok ? 'cash' : 'invalid');
+      return ok;
+    },
+
     autoFurnishNow: () => {
       let placed = 0;
       set((s) => {
@@ -634,13 +713,24 @@ export const useGameStore = create<GameStore>()(
       audioManager.play('click');
     },
 
+    toggleMuteTrainingPopups: () => {
+      audioManager.play('click');
+      set((s) => {
+        s.muteTrainingPopups = !s.muteTrainingPopups;
+        if (s.muteTrainingPopups) {
+          s.trainingResultModelId = null;
+        }
+      });
+    },
+
     saveNow: () => {
-      const g = get().game;
-      writeSaveToStorage(g);
+      const st = get();
+      writeSaveToStorage(st.game, st.activeSaveSlot);
       set((s) => {
         s.hasExistingSave = true;
+        s.saveSlotsNonce += 1;
         s.game.lastSavedAtMs = Date.now();
-        pushNotification(s.game, 'Lab saved to localStorage.', 'info');
+        pushNotification(s.game, `"${s.game.labName}" saved.`, 'info');
       });
       audioManager.play('click');
     },
@@ -688,6 +778,7 @@ export const useGameStore = create<GameStore>()(
       audioManager.play('click');
       set((s) => {
         s.trainingResultModelId = null;
+        s.game.lastCompletedModelId = null;
       });
     },
 
@@ -749,8 +840,8 @@ export const useGameStore = create<GameStore>()(
       set((s) => {
         for (let i = 0; i < count; i++) {
           const member = generateCandidate(s.game);
-          member.x = 5 + ((i * 7) % 8) + 0.5;
-          member.z = 5 + ((i * 3) % 7) + 0.5;
+          member.x = 10 + ((i * 7) % 8) + 0.5;
+          member.z = 12 + ((i * 3) % 7) + 0.5;
           member.targetX = member.x;
           member.targetZ = member.z;
           s.game.staff.push(member);
@@ -831,7 +922,10 @@ export const useGameStore = create<GameStore>()(
         stepTrainingJobs(s.game, 5000, 1, res.researchBonusPct);
         if (s.game.lastCompletedModelId) {
           finishedModelId = s.game.lastCompletedModelId;
-          s.trainingResultModelId = finishedModelId;
+          if (!s.game.automation.autoQueueTraining && !s.muteTrainingPopups) {
+            s.trainingResultModelId = finishedModelId;
+          }
+          s.game.lastCompletedModelId = null;
         }
       });
       audioManager.play(finishedModelId ? 'train_complete' : 'click');
@@ -879,8 +973,8 @@ export const useGameStore = create<GameStore>()(
           member.skill = 10;
           member.mood = 100;
           member.energy = 100;
-          member.x = 6 + ((i * 3) % 6) + 0.5;
-          member.z = 6 + ((i * 2) % 5) + 0.5;
+          member.x = 10 + ((i * 3) % 8) + 0.5;
+          member.z = 12 + ((i * 2) % 7) + 0.5;
           member.targetX = member.x;
           member.targetZ = member.z;
           s.game.staff.push(member);
@@ -918,6 +1012,13 @@ export const useGameStore = create<GameStore>()(
       audioManager.play('cash');
       set((s) => {
         applyMaxHyperscaleHQ(s.game);
+      });
+    },
+
+    cheatUnlockAllLand: () => {
+      audioManager.play('cash');
+      set((s) => {
+        unlockAllCampusLand(s.game);
       });
     },
 

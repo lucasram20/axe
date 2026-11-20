@@ -17,14 +17,13 @@ const FLOOR_COLORS: Record<FloorType, string> = {
   lounge: '#cf8d59',
 };
 
-const CELL_PX = 7;
-
 export function Minimap() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const game = useGameStore((s) => s.game);
   const cameraBounds = useGameStore((s) => s.cameraBounds);
   const jumpCameraTo = useGameStore((s) => s.jumpCameraTo);
 
+  const CELL_PX = game.gridWidth >= 24 ? 5 : 7;
   const wPx = game.gridWidth * CELL_PX;
   const hPx = game.gridHeight * CELL_PX;
 

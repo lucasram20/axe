@@ -4,9 +4,9 @@
  */
 
 export const BALANCE = {
-  // Grid dimensions (isometric tiles)
-  gridWidth: 18,
-  gridHeight: 18,
+  // Grid dimensions (isometric tiles — 28x28 multi-building expandable campus)
+  gridWidth: 28,
+  gridHeight: 28,
 
   // Starting state (Year 2010 garage startup)
   startingCash: 48_000,
