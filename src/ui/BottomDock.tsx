@@ -1,6 +1,6 @@
 /**
- * Classic isometric tycoon round pixel-art category dock along bottom center.
- * Single unified perimeter dock keeping the central 3D viewport unobstructed.
+ * Classic isometric tycoon round category dock along bottom center.
+ * Slim, crisp single-row mobile landscape layout leaving maximum space for the 3D lab.
  */
 
 import { useGameStore, type DrawerTab } from '../store/useGameStore';
@@ -26,7 +26,7 @@ export function BottomDock() {
   return (
     <nav
       aria-label="Lab management categories"
-      className="pointer-events-auto fixed bottom-2 sm:bottom-3 [@media(max-height:500px)]:bottom-1 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 [@media(max-height:500px)]:py-1 [@media(max-height:500px)]:px-2 pixel-frame max-w-[97vw] overflow-x-auto touch-pan-x"
+      className="pointer-events-auto fixed bottom-2 sm:bottom-3 [@media(max-height:500px)]:bottom-1 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 sm:gap-2 [@media(max-height:500px)]:gap-1.5 px-2 sm:px-3 py-1.5 sm:py-2 [@media(max-height:500px)]:py-1 [@media(max-height:500px)]:px-2 pixel-frame max-w-[96vw] overflow-x-auto touch-pan-x"
     >
       {DOCK_ITEMS.map((item) => {
         const isActive = activeDrawer === item.id;
@@ -43,20 +43,22 @@ export function BottomDock() {
               title={item.keyHint ? `${item.label} (${item.keyHint})` : item.label}
               className={`pixel-round-btn relative ${isActive ? 'active' : ''}`}
             >
-              <PixelIcon name={item.id} size={22} />
+              <span className="[@media(max-height:500px)]:scale-[0.78] flex items-center justify-center">
+                <PixelIcon name={item.id} size={22} />
+              </span>
               {item.id === 'models' && trainingCount > 0 && (
-                <span className="absolute -top-1 -right-1 px-1 text-[10px] font-pixel-display bg-[#8ce063] text-[#14121d] border border-[#14121d]">
+                <span className="absolute -top-1 -right-1 px-1 text-[9px] font-pixel-display bg-[#8ce063] text-[#14121d] border border-[#14121d] leading-tight">
                   {trainingCount}
                 </span>
               )}
               {item.id === 'staff' && (
-                <span className="absolute -top-1 -right-1 px-1 text-[10px] font-pixel-display bg-[#4ea8de] text-[#14121d] border border-[#14121d]">
+                <span className="absolute -top-1 -right-1 px-1 text-[9px] font-pixel-display bg-[#4ea8de] text-[#14121d] border border-[#14121d] leading-tight">
                   {staffCount}
                 </span>
               )}
             </button>
             <span
-              className={`text-[10px] sm:text-[11px] [@media(max-height:500px)]:text-[9px] font-pixel-display leading-none whitespace-nowrap ${
+              className={`text-[10px] sm:text-[11px] [@media(max-height:500px)]:text-[8px] font-pixel-display leading-none whitespace-nowrap ${
                 isActive ? 'text-[#ffe478]' : 'text-[#b8c0cf]'
               }`}
             >

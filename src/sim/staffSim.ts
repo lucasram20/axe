@@ -17,6 +17,7 @@ import {
   STAFF_TRAIT_BY_ID,
   type StaffRole,
 } from '../data/staff';
+import { autoEnsureDeskForHire } from './facility';
 import { getWalkableIndoorTiles } from './grid';
 import {
   allocUid,
@@ -116,17 +117,35 @@ export function hireCandidate(
   const idx = state.candidates.findIndex((c) => c.id === candidateId);
   if (idx === -1) return { ok: false, reason: 'Candidate unavailable' };
 
-  const deskSlots = countDeskSlots(state);
-  if (state.staff.length >= Math.max(deskSlots, 1)) {
-    return { ok: false, reason: 'Build more desks first' };
-  }
-
   const candidate = state.candidates[idx];
-  if (state.cash < candidate.hireFee) {
+  if (!state.cheatFreeBuild && state.cash < candidate.hireFee) {
     return { ok: false, reason: 'Insufficient cash' };
   }
 
-  state.cash -= candidate.hireFee;
+  let deskSlots = countDeskSlots(state);
+  if (state.staff.length >= Math.max(deskSlots, 1)) {
+    if (state.automation.autoFurnish) {
+      const autoDesk = autoEnsureDeskForHire(state);
+      if (autoDesk.ok) {
+        deskSlots = countDeskSlots(state);
+        pushNotification(
+          state,
+          `Auto-Furnish added a ${autoDesk.placedItemName ?? 'desk'} for ${candidate.name}.`,
+          'info',
+        );
+      }
+    }
+    if (state.staff.length >= Math.max(deskSlots, 1)) {
+      return { ok: false, reason: 'Upgrade HQ or add space for more desks' };
+    }
+  }
+
+  if (!state.cheatFreeBuild) {
+    if (state.cash < candidate.hireFee) {
+      return { ok: false, reason: 'Insufficient cash' };
+    }
+    state.cash -= candidate.hireFee;
+  }
   state.candidates.splice(idx, 1);
 
   const walkable = getWalkableIndoorTiles(state);

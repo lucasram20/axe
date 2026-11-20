@@ -125,12 +125,13 @@ export interface AutomationState {
   autoQueueTraining: boolean;
   autoBuyPower: boolean;
   autoHireStaff: boolean;
+  autoFurnish: boolean;
   lastArchId: string;
   lastDatasetId: string;
 }
 
 export interface QualitySettings {
-  pixelScale: 2 | 3 | 4;
+  pixelScale: 1 | 2 | 3;
   outlines: boolean;
   shadows: boolean;
   paletteQuantize: boolean;
@@ -160,6 +161,8 @@ export interface ResourceSnapshot {
   isOverheated: boolean;
 }
 
+export type BuildingTier = 0 | 1 | 2 | 3;
+
 export interface GameState {
   version: number;
   labName: string;
@@ -185,7 +188,8 @@ export interface GameState {
   bonusCompute: number; // Debug or special grant compute
   extraGridPowerContracts: number; // Purchased via Auto-Buy Power
 
-  // Spatial world
+  // Spatial world & HQ building tier
+  buildingTier: BuildingTier;
   gridWidth: number;
   gridHeight: number;
   floors: FloorType[]; // length = gridWidth * gridHeight
@@ -217,6 +221,10 @@ export interface GameState {
   automation: AutomationState;
   settings: QualitySettings;
   notifications: NotificationItem[];
+
+  // Founder Vault live overrides stored cleanly in sim state
+  cheatPerfectModels?: boolean;
+  cheatFreeBuild?: boolean;
 
   // Pending modals emitted by sim
   lastCompletedModelId: string | null;

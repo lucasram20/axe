@@ -40,7 +40,7 @@ export function ModelsDrawer() {
   return (
     <section
       aria-label="Models and training"
-      className="pointer-events-auto fixed bottom-[84px] sm:bottom-[104px] [@media(max-height:500px)]:bottom-[68px] left-1/2 -translate-x-1/2 z-20 w-[min(900px,96vw)] max-h-[calc(100dvh-180px)] [@media(max-height:500px)]:max-h-[calc(100dvh-126px)] overflow-y-auto pixel-scroll pixel-frame p-2.5 sm:p-3 [@media(max-height:500px)]:p-2"
+      className="pointer-events-auto fixed bottom-[84px] sm:bottom-[104px] [@media(max-height:500px)]:bottom-[54px] left-1/2 -translate-x-1/2 z-20 w-[min(900px,96vw)] max-h-[calc(100dvh-176px)] [@media(max-height:500px)]:max-h-[calc(100dvh-98px)] overflow-y-auto pixel-scroll pixel-frame p-2.5 sm:p-3 [@media(max-height:500px)]:p-2"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 pb-2 mb-2 border-b-2 border-[#2e344b]">
         <div className="flex items-center gap-1.5">

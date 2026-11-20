@@ -8,7 +8,7 @@ import { immer } from 'zustand/middleware/immer';
 import { audioManager } from '../audio/audioManager';
 import { BALANCE } from '../data/balance';
 import { DATASETS } from '../data/datasets';
-import { TECH_NODES } from '../data/techs';
+import { ERAS, TECH_NODES } from '../data/techs';
 import {
   computeResources,
   raiseFundingRound,
@@ -20,6 +20,11 @@ import {
   stepSimulation,
   triggerRandomEventNow,
 } from '../sim/engine';
+import {
+  applyMaxHyperscaleHQ,
+  autoFurnishLab,
+  upgradeBuildingTier,
+} from '../sim/facility';
 import { movePlacedItem, placeItem, sellPlacedItem } from '../sim/grid';
 import {
   createInitialState,
@@ -35,6 +40,7 @@ import {
 } from '../sim/staffSim';
 import {
   acquireDataset,
+  maxAllTrainedModels,
   shipModelAsProduct,
   startTrainingJob,
   stepTrainingJobs,
@@ -130,7 +136,9 @@ interface GameStore {
   shipModel: (modelId: string) => void;
   raiseFunding: (roundId: string) => void;
   chooseEventOption: (choiceId: string) => void;
-  toggleAutomation: (key: 'autoQueueTraining' | 'autoBuyPower' | 'autoHireStaff') => void;
+  toggleAutomation: (key: 'autoQueueTraining' | 'autoBuyPower' | 'autoHireStaff' | 'autoFurnish') => void;
+  upgradeBuilding: () => boolean;
+  autoFurnishNow: () => void;
 
   // Settings & persistence
   updateSettings: (patch: Partial<QualitySettings>) => void;
@@ -154,7 +162,7 @@ interface GameStore {
   debugUnlockAllTechs: () => void;
   debugSpawnStaffBatch: (count: number) => void;
 
-  // Secret cheat menu (keyboard-only)
+  // Secret cheat menu (keyboard-only + 5-tap mobile date gesture)
   toggleCheatMenu: () => void;
   closeCheatMenu: () => void;
   cheatAddCash: (amount: number) => void;
@@ -165,8 +173,14 @@ interface GameStore {
   cheatCompleteAllTraining: () => void;
   cheatUnlockAllResearchAndData: () => void;
   cheatMaxStaffMood: () => void;
+  cheatMaxAllStaffSkill: () => void;
   cheatSpawnGeniuses: (count: number) => void;
   cheatJumpToFrontierEra: () => void;
+  cheatJumpToEra: (eraIndex: number) => void;
+  cheatMaxBuildingAndDataCenter: () => void;
+  cheatMaxAllModels: () => void;
+  cheatTogglePerfectModels: () => void;
+  cheatToggleFreeBuild: () => void;
   cheatToggleGodMood: () => void;
   cheatToggleHyperTraining: () => void;
   cheatToggleFreeCash: () => void;
@@ -583,6 +597,33 @@ export const useGameStore = create<GameStore>()(
       });
     },
 
+    upgradeBuilding: () => {
+      let ok = false;
+      set((s) => {
+        const res = upgradeBuildingTier(s.game);
+        ok = res.ok;
+        if (!res.ok && res.reason) {
+          pushNotification(s.game, res.reason, 'warn');
+        }
+      });
+      audioManager.play(ok ? 'cash' : 'invalid');
+      return ok;
+    },
+
+    autoFurnishNow: () => {
+      let placed = 0;
+      set((s) => {
+        const res = autoFurnishLab(s.game);
+        placed = res.placedCount;
+        if (placed > 0) {
+          pushNotification(s.game, `Auto-Furnished ${placed} items (desks, amenities, power & cooling).`, 'good');
+        } else {
+          pushNotification(s.game, 'Lab layout is already balanced and furnished!', 'info');
+        }
+      });
+      audioManager.play(placed > 0 ? 'place' : 'click');
+    },
+
     updateSettings: (patch) => {
       if (patch.muted !== undefined) {
         audioManager.setMuted(patch.muted);
@@ -696,10 +737,10 @@ export const useGameStore = create<GameStore>()(
     debugUnlockAllTechs: () => {
       audioManager.play('research');
       set((s) => {
-        s.game.eraIndex = 4;
+        s.game.eraIndex = ERAS.length - 1;
         s.game.unlockedTechs = TECH_NODES.map((t) => t.id);
-        s.game.reputation = Math.max(s.game.reputation, 90);
-        pushNotification(s.game, '[Debug] Unlocked all eras & research nodes.', 'good');
+        s.game.reputation = Math.max(s.game.reputation, 95);
+        pushNotification(s.game, '[Debug] Unlocked all eras (2010-2100) & research nodes.', 'good');
       });
     },
 
@@ -799,11 +840,11 @@ export const useGameStore = create<GameStore>()(
     cheatUnlockAllResearchAndData: () => {
       audioManager.play('research');
       set((s) => {
-        s.game.eraIndex = 4;
+        s.game.eraIndex = Math.max(s.game.eraIndex, ERAS.length - 1);
         s.game.unlockedTechs = TECH_NODES.map((t) => t.id);
         s.game.ownedDatasets = DATASETS.map((d) => d.id);
-        s.game.reputation = Math.max(s.game.reputation, 95);
-        pushNotification(s.game, 'Unlocked all Eras, Techs & Datasets.', 'good');
+        s.game.reputation = Math.max(s.game.reputation, 98);
+        pushNotification(s.game, 'Unlocked all Eras (2010–2100), Architectures & Datasets.', 'good');
       });
     },
 
@@ -815,6 +856,18 @@ export const useGameStore = create<GameStore>()(
           m.energy = 100;
         }
         pushNotification(s.game, 'All staff restored to 100% Mood & Energy.', 'good');
+      });
+    },
+
+    cheatMaxAllStaffSkill: () => {
+      audioManager.play('hire');
+      set((s) => {
+        for (const m of s.game.staff) {
+          m.skill = 10;
+          m.mood = 100;
+          m.energy = 100;
+        }
+        pushNotification(s.game, 'Upgraded every staff member to Lv.10 with 100% Mood & Energy!', 'good');
       });
     },
 
@@ -832,19 +885,74 @@ export const useGameStore = create<GameStore>()(
           member.targetZ = member.z;
           s.game.staff.push(member);
         }
+        if (s.game.automation.autoFurnish) {
+          autoFurnishLab(s.game, { free: true });
+        }
         pushNotification(s.game, `Recruited ${count} Lv.10 genius staff!`, 'good');
       });
     },
 
     cheatJumpToFrontierEra: () => {
+      get().cheatJumpToEra(4);
+    },
+
+    cheatJumpToEra: (eraIndex) => {
       audioManager.play('research');
       set((s) => {
-        s.game.year = 2025;
+        const clamped = Math.max(0, Math.min(ERAS.length - 1, eraIndex));
+        const targetEra = ERAS[clamped];
+        s.game.eraIndex = clamped;
+        s.game.year = targetEra.startYear;
         s.game.month = 1;
         s.game.dayOfMonth = 1;
-        s.game.totalDays = Math.max(s.game.totalDays, (2025 - BALANCE.startYear) * 365);
-        s.game.eraIndex = 4;
-        pushNotification(s.game, 'Timeline jumped to 2025 (Frontier Era).', 'good');
+        s.game.totalDays = (targetEra.startYear - BALANCE.startYear) * 365;
+        pushNotification(
+          s.game,
+          `Timeline jumped to ${targetEra.startYear} — Era ${clamped + 1}: ${targetEra.name}!`,
+          'good',
+        );
+      });
+    },
+
+    cheatMaxBuildingAndDataCenter: () => {
+      audioManager.play('cash');
+      set((s) => {
+        applyMaxHyperscaleHQ(s.game);
+      });
+    },
+
+    cheatMaxAllModels: () => {
+      audioManager.play('train_complete');
+      set((s) => {
+        const count = maxAllTrainedModels(s.game);
+        if (count > 0) {
+          pushNotification(s.game, `Boosted ${count} trained model(s) to 100/100 across all aspects!`, 'good');
+        } else {
+          pushNotification(s.game, 'No trained models yet — enable Perfect 100/100 Models toggle for upcoming runs!', 'info');
+        }
+      });
+    },
+
+    cheatTogglePerfectModels: () => {
+      audioManager.play('research');
+      set((s) => {
+        s.game.cheatPerfectModels = !s.game.cheatPerfectModels;
+        if (s.game.cheatPerfectModels) {
+          maxAllTrainedModels(s.game);
+          pushNotification(s.game, 'Perfect 100/100 Model Quality enabled across all benchmark aspects!', 'good');
+        }
+      });
+    },
+
+    cheatToggleFreeBuild: () => {
+      audioManager.play('click');
+      set((s) => {
+        s.game.cheatFreeBuild = !s.game.cheatFreeBuild;
+        pushNotification(
+          s.game,
+          s.game.cheatFreeBuild ? 'Free Build & Zero Upkeep enabled!' : 'Free Build disabled.',
+          'info',
+        );
       });
     },
 

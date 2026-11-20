@@ -79,163 +79,147 @@ export function createPixelTextures(): PixelTexturePack {
     for (const [x, y] of shadows) ctx.fillRect(x, y, 1, 1);
   });
 
-  // Honey-oak staggered wood planks (signature warm floor from reference art)
+  // Sunlit honey-oak staggered wood planks (warm, airy contrast so furniture silhouettes pop!)
   const garage = makePixelCanvas(32, (ctx) => {
-    ctx.fillStyle = '#b5723a';
+    ctx.fillStyle = '#c88c52';
     ctx.fillRect(0, 0, 32, 32);
 
-    // 4 horizontal wood planks per tile with warm tone variation & grain highlights
-    const plankTones = ['#b5723a', '#c48144', '#ab6833', '#bf7b40'];
+    const plankTones = ['#c88c52', '#d2975c', '#be8249', '#cc9056'];
     const joints = [6, 20, 12, 26];
     for (let p = 0; p < 4; p++) {
       const y = p * 8;
       ctx.fillStyle = plankTones[p];
       ctx.fillRect(0, y, 32, 7);
 
-      // Subtle golden highlight along top bevel of each plank
-      ctx.fillStyle = '#d49455';
-      ctx.fillRect(1, y + 1, 11, 1);
-      ctx.fillRect(17, y + 2, 9, 1);
+      ctx.fillStyle = '#dfa96e';
+      ctx.fillRect(2, y + 1, 10, 1);
+      ctx.fillRect(18, y + 2, 8, 1);
 
-      // Grain streaks
-      ctx.fillStyle = '#8a4623';
-      ctx.fillRect(4, y + 4, 7, 1);
-      ctx.fillRect(22, y + 5, 6, 1);
+      ctx.fillStyle = '#a86b38';
+      ctx.fillRect(5, y + 4, 6, 1);
+      ctx.fillRect(22, y + 5, 5, 1);
 
-      // Horizontal seam between planks
-      ctx.fillStyle = '#6b3a1f';
+      // Gentle plank seam (never too dark so desks never blur into floor)
+      ctx.fillStyle = '#995f30';
       ctx.fillRect(0, y + 7, 32, 1);
 
-      // Staggered vertical plank butt-joint
       const jx = joints[p];
       ctx.fillRect(jx, y, 1, 8);
-      ctx.fillStyle = '#d49455';
-      ctx.fillRect((jx + 1) % 32, y + 1, 1, 5);
     }
   });
 
-  // Sunlit bright studio birch-oak / warm cream parquet for Research Lab zone
+  // Bright studio birch-cream parquet for Research Lab zone
   const lab = makePixelCanvas(32, (ctx) => {
-    ctx.fillStyle = '#d49455';
+    ctx.fillStyle = '#e2be8a';
     ctx.fillRect(0, 0, 32, 32);
-    const tones = ['#d49455', '#dca064', '#c9884c', '#d89a5c'];
+    const tones = ['#e2be8a', '#e9c896', '#dab580', '#e5c28e'];
     const joints = [10, 24, 4, 18];
     for (let p = 0; p < 4; p++) {
       const y = p * 8;
       ctx.fillStyle = tones[p];
       ctx.fillRect(0, y, 32, 7);
-      ctx.fillStyle = '#eadbc8';
+      ctx.fillStyle = '#f4dfc0';
       ctx.fillRect(2, y + 1, 10, 1);
-      ctx.fillStyle = '#b5723a';
-      ctx.fillRect(14, y + 4, 8, 1);
-      ctx.fillStyle = '#8a4623';
+      ctx.fillStyle = '#c9a16b';
       ctx.fillRect(0, y + 7, 32, 1);
       ctx.fillRect(joints[p], y, 1, 8);
     }
   });
 
-  // Clean ceramic utility / server room floor tiles (echoes reference tiled utility zone)
+  // Crisp raised steel-ceramic data center tiles with cyan airflow accents
   const server = makePixelCanvas(16, (ctx) => {
-    ctx.fillStyle = '#c9c3b9';
+    ctx.fillStyle = '#cfd4dc';
     ctx.fillRect(0, 0, 16, 16);
-    // Crisp 2x2 ceramic sub-tiles
-    ctx.fillStyle = '#d8d2c7';
+    ctx.fillStyle = '#dfe4ec';
     ctx.fillRect(1, 1, 6, 6);
     ctx.fillRect(9, 9, 6, 6);
-    ctx.fillStyle = '#bfb8ae';
+    ctx.fillStyle = '#c2c8d2';
     ctx.fillRect(9, 1, 6, 6);
     ctx.fillRect(1, 9, 6, 6);
-    // Grout lines
-    ctx.fillStyle = '#8a827d';
+    ctx.fillStyle = '#8b94a5';
     ctx.fillRect(0, 0, 16, 1);
     ctx.fillRect(0, 0, 1, 16);
     ctx.fillRect(0, 8, 16, 1);
     ctx.fillRect(8, 0, 1, 16);
-    // Subtle blue tech airflow dot
-    ctx.fillStyle = '#5178a8';
+    ctx.fillStyle = '#5baad9';
     ctx.fillRect(4, 4, 1, 1);
     ctx.fillRect(12, 12, 1, 1);
   });
 
-  // Cozy slate-denim woven lounge rug (straight from the reference living room rug!)
+  // Cozy slate-denim woven lounge rug
   const lounge = makePixelCanvas(16, (ctx) => {
-    ctx.fillStyle = '#3e587d';
+    ctx.fillStyle = '#47658f';
     ctx.fillRect(0, 0, 16, 16);
-    ctx.fillStyle = '#5178a8';
+    ctx.fillStyle = '#5c82b5';
     for (let y = 1; y < 15; y += 2) {
       for (let x = (y % 4 === 1 ? 1 : 3); x < 15; x += 4) {
         ctx.fillRect(x, y, 2, 1);
       }
     }
-    // Stitched dark border hem
-    ctx.fillStyle = '#24344d';
+    ctx.fillStyle = '#2d4363';
     ctx.fillRect(0, 0, 16, 1);
     ctx.fillRect(0, 15, 16, 1);
     ctx.fillRect(0, 0, 1, 16);
     ctx.fillRect(15, 0, 1, 16);
   });
 
-  // Warm furniture oak wood grain
+  // Warm furniture birch-oak wood grain
   const wood = makePixelCanvas(16, (ctx) => {
-    ctx.fillStyle = '#d49455';
+    ctx.fillStyle = '#e0aa6b';
     ctx.fillRect(0, 0, 16, 16);
-    ctx.fillStyle = '#b5723a';
+    ctx.fillStyle = '#c88c52';
     ctx.fillRect(0, 4, 16, 1);
     ctx.fillRect(0, 10, 16, 1);
-    ctx.fillRect(0, 15, 16, 1);
-    ctx.fillStyle = '#eadbc8';
-    ctx.fillRect(2, 2, 5, 1);
+    ctx.fillStyle = '#f2d9b6';
+    ctx.fillRect(2, 2, 6, 1);
     ctx.fillRect(8, 7, 6, 1);
   });
 
-  // Warm peach/taupe wallpaper with subtle diamond motif & wooden baseboard (reference walls!)
+  // Clean sunlit plaster wall with subtle molding & wood baseboard (tints cleanly per Era!)
   const wallPlaster = makePixelCanvas(32, (ctx) => {
-    ctx.fillStyle = '#cda384';
+    ctx.fillStyle = '#f4eadc';
     ctx.fillRect(0, 0, 32, 32);
-    // Subtle lighter diamond wallpaper motif
-    ctx.fillStyle = '#d9b598';
-    for (let y = 2; y < 25; y += 6) {
-      for (let x = (y % 12 === 2 ? 2 : 5); x < 30; x += 6) {
-        ctx.fillRect(x, y, 2, 1);
-        ctx.fillRect(x - 1, y + 1, 4, 1);
-        ctx.fillRect(x, y + 2, 2, 1);
-      }
+    // Subtle vertical architectural paneling sheen
+    ctx.fillStyle = '#ebe0cf';
+    for (let x = 0; x < 32; x += 8) {
+      ctx.fillRect(x, 3, 1, 22);
     }
-    // Top plaster trim band
-    ctx.fillStyle = '#eadbc8';
-    ctx.fillRect(0, 0, 32, 2);
-    // Bottom wood wainscoting / baseboard
-    ctx.fillStyle = '#8a4623';
-    ctx.fillRect(0, 26, 32, 1);
-    ctx.fillStyle = '#b5723a';
-    ctx.fillRect(0, 27, 32, 4);
-    ctx.fillStyle = '#522c1b';
+    // Crisp crown molding near top
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, 32, 3);
+    ctx.fillStyle = '#dcd0be';
+    ctx.fillRect(0, 3, 32, 1);
+    // Clean bottom wainscot / baseboard strip
+    ctx.fillStyle = '#d4c4ae';
+    ctx.fillRect(0, 25, 32, 1);
+    ctx.fillStyle = '#c9b79f';
+    ctx.fillRect(0, 26, 32, 5);
+    ctx.fillStyle = '#a3907a';
     ctx.fillRect(0, 31, 32, 1);
   }, true);
 
-  // Sunlit daylight window pane with sky-blue gradient, soft clouds & leafy treetops
+  // Sunlit daylight window pane with sky-blue gradient, soft clouds & crisp cream mullions
   const windowDaylight = makePixelCanvas(16, (ctx) => {
-    // Bright sky top
-    ctx.fillStyle = '#b0e2f7';
+    ctx.fillStyle = '#a4dbf7';
     ctx.fillRect(0, 0, 16, 16);
-    // Sunlit pale cloud shimmer
-    ctx.fillStyle = '#f8f0df';
-    ctx.fillRect(2, 2, 6, 3);
-    ctx.fillRect(9, 4, 5, 2);
-    // Diagonal window glass shine
+    ctx.fillStyle = '#e8f6ff';
+    ctx.fillRect(2, 2, 5, 2);
+    ctx.fillRect(10, 4, 4, 2);
+    // Diagonal window reflection gleam
+    ctx.fillStyle = '#ffffff';
     ctx.fillRect(3, 6, 2, 2);
     ctx.fillRect(5, 8, 2, 2);
-    // Leafy green garden branches peeking at bottom
+    // Outdoor foliage silhouette near sill
     ctx.fillStyle = '#66ad45';
-    ctx.fillRect(1, 11, 5, 4);
-    ctx.fillRect(10, 10, 5, 5);
+    ctx.fillRect(1, 12, 5, 3);
+    ctx.fillRect(10, 11, 5, 4);
     ctx.fillStyle = '#99db5c';
-    ctx.fillRect(2, 11, 3, 2);
+    ctx.fillRect(2, 12, 3, 1);
     ctx.fillRect(11, 11, 3, 2);
-    // Cream window muntin crossbars
+    // Crisp cream window mullion crossbars
     ctx.fillStyle = '#f8f0df';
     ctx.fillRect(7, 0, 2, 16);
-    ctx.fillRect(0, 6, 16, 2);
+    ctx.fillRect(0, 7, 16, 2);
   }, true);
 
   const serverFront = makePixelCanvas(16, (ctx) => {

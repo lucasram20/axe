@@ -116,8 +116,10 @@ export function computeResources(state: GameState): ResourceSnapshot {
   const revenuePerDay =
     rawProductRevenue * (1 + revenueTechBonus + salesRevenueBonus);
 
-  const powerBillPerDay = powerDemand * BALANCE.basePowerCostPerKwPerDay;
-  const netPerDay = revenuePerDay - (upkeepPerDay + payrollPerDay + powerBillPerDay);
+  const powerBillPerDay = state.cheatFreeBuild ? 0 : powerDemand * BALANCE.basePowerCostPerKwPerDay;
+  const effectiveUpkeep = state.cheatFreeBuild ? 0 : upkeepPerDay;
+  const effectivePayroll = state.cheatFreeBuild ? 0 : payrollPerDay;
+  const netPerDay = revenuePerDay - (effectiveUpkeep + effectivePayroll + powerBillPerDay);
   const netPerSecond = netPerDay / BALANCE.realSecondsPerGameDay;
 
   return {

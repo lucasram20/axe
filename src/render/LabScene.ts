@@ -59,6 +59,149 @@ function detectSoftwareWebGL(): boolean {
   }
 }
 
+interface EraBuildingTheme {
+  wallMain: string;
+  wallExterior: string;
+  baseboard: string;
+  cornice: string;
+  pilaster: string;
+  windowFrame: string;
+  windowGlass: string;
+  windowEmissive: string;
+  accentStrip: string | null;
+  accentEmissive: string | null;
+  cornerBeacon: string | null;
+  wallHeight: number;
+  floorTint: {
+    garage: string;
+    lab: string;
+    server: string;
+    lounge: string;
+  };
+}
+
+const ERA_BUILDING_THEMES: EraBuildingTheme[] = [
+  // Era 0: 2010 Garage Deep Nets — Cozy warm plaster + oak baseboard + warm daylight windows
+  {
+    wallMain: '#efe2ce',
+    wallExterior: '#d5b999',
+    baseboard: '#7c4e2e',
+    cornice: '#8d5b37',
+    pilaster: '#9e6b43',
+    windowFrame: '#6a4024',
+    windowGlass: '#a8d8ee',
+    windowEmissive: '#ffd285',
+    accentStrip: null,
+    accentEmissive: null,
+    cornerBeacon: null,
+    wallHeight: 2.05,
+    floorTint: { garage: '#ffffff', lab: '#ffffff', server: '#ffffff', lounge: '#ffffff' },
+  },
+  // Era 1: 2014 Vision Studio — Loft terracotta brick + studio plaster + iron mullions
+  {
+    wallMain: '#ebe2d6',
+    wallExterior: '#b8644d',
+    baseboard: '#4a434a',
+    cornice: '#5a5058',
+    pilaster: '#9e5340',
+    windowFrame: '#3c3844',
+    windowGlass: '#9cd6f0',
+    windowEmissive: '#ffd996',
+    accentStrip: '#d17b58',
+    accentEmissive: null,
+    cornerBeacon: null,
+    wallHeight: 2.15,
+    floorTint: { garage: '#f8efe5', lab: '#f5f2ec', server: '#ebeef5', lounge: '#fff2e6' },
+  },
+  // Era 2: 2017 Attention Campus — Clean bright white architectural studio + brushed aluminum
+  {
+    wallMain: '#f2f4f7',
+    wallExterior: '#dde3ec',
+    baseboard: '#4e5d75',
+    cornice: '#5e6f8c',
+    pilaster: '#cfd8e6',
+    windowFrame: '#3e4d63',
+    windowGlass: '#8ed6f7',
+    windowEmissive: '#cceeff',
+    accentStrip: '#4ea8de',
+    accentEmissive: '#4ea8de',
+    cornerBeacon: null,
+    wallHeight: 2.25,
+    floorTint: { garage: '#edf2f7', lab: '#e6eef7', server: '#dce6f2', lounge: '#eef5f0' },
+  },
+  // Era 3: 2021 Hyperscale Foundry — Graphite architectural steel + cobalt cyan trims
+  {
+    wallMain: '#d6dde8',
+    wallExterior: '#4c576e',
+    baseboard: '#293040',
+    cornice: '#3a455c',
+    pilaster: '#5e6d8a',
+    windowFrame: '#252c3b',
+    windowGlass: '#7fd4ff',
+    windowEmissive: '#6cc8ff',
+    accentStrip: '#56c7ff',
+    accentEmissive: '#56c7ff',
+    cornerBeacon: null,
+    wallHeight: 2.35,
+    floorTint: { garage: '#d4dce8', lab: '#cad6e8', server: '#bccae0', lounge: '#d6e2ec' },
+  },
+  // Era 4: 2025 Frontier Citadel — Warm ivory limestone + champagne-gold brass columns
+  {
+    wallMain: '#f7f1e3',
+    wallExterior: '#e6dcc8',
+    baseboard: '#4b4340',
+    cornice: '#e6b84c',
+    pilaster: '#d9ab43',
+    windowFrame: '#8f6928',
+    windowGlass: '#9ae6ff',
+    windowEmissive: '#ffe499',
+    accentStrip: '#ffe478',
+    accentEmissive: '#e6b84c',
+    cornerBeacon: '#ffe478',
+    wallHeight: 2.45,
+    floorTint: { garage: '#faf2e4', lab: '#f4ece0', server: '#e2e8f2', lounge: '#fbf4e8' },
+  },
+  // Era 5: 2045 Photonic Quantum Age — Pearl-white composite + glowing cyan holo-glass channels
+  {
+    wallMain: '#ebf7fc',
+    wallExterior: '#cbe4f0',
+    baseboard: '#2b475c',
+    cornice: '#68e8ff',
+    pilaster: '#9adbf0',
+    windowFrame: '#2d5873',
+    windowGlass: '#7cf2ff',
+    windowEmissive: '#5de8ff',
+    accentStrip: '#68f2ff',
+    accentEmissive: '#4de8ff',
+    cornerBeacon: '#68f2ff',
+    wallHeight: 2.55,
+    floorTint: { garage: '#d4effa', lab: '#c6ecfa', server: '#b4e2f7', lounge: '#daf4fc' },
+  },
+  // Era 6: 2100 Singularity Nexus — Celestial alabaster-obsidian + radiant starlight gold & violet
+  {
+    wallMain: '#f9f3e6',
+    wallExterior: '#28253d',
+    baseboard: '#1e1b2e',
+    cornice: '#ffe478',
+    pilaster: '#e6b84c',
+    windowFrame: '#b894ff',
+    windowGlass: '#d6c4ff',
+    windowEmissive: '#c8a8ff',
+    accentStrip: '#ffe478',
+    accentEmissive: '#ffd866',
+    cornerBeacon: '#c8a8ff',
+    wallHeight: 2.65,
+    floorTint: { garage: '#f3ebfc', lab: '#ebe2fa', server: '#d9d2f7', lounge: '#faf2e4' },
+  },
+];
+
+interface WallAssembly {
+  nx: number;
+  nz: number;
+  upperGroup: THREE.Group;
+  currentScaleY: number;
+}
+
 interface PlacedMeshEntry {
   uid: string;
   itemId: string;
@@ -95,6 +238,15 @@ export class LabSceneController {
   private readonly floorTiles: THREE.Mesh[] = [];
   private readonly floorMaterials: Record<FloorType, THREE.MeshToonMaterial>;
   private readonly floorStateCache: FloorType[] = [];
+
+  private readonly buildingShellGroup = new THREE.Group();
+  private wallAssemblies: WallAssembly[] = [];
+  private shellWindowMeshes: THREE.Mesh[] = [];
+  private shellGlowMeshes: THREE.Mesh[] = [];
+  private shellDisposables: Array<THREE.BufferGeometry | THREE.Material> = [];
+  private lastShellSignature = '';
+  private lastVisualEra = -1;
+  private streetLampBulbs: THREE.Mesh[] = [];
 
   private readonly placedGroup = new THREE.Group();
   private readonly placedEntries = new Map<string, PlacedMeshEntry>();
@@ -200,21 +352,21 @@ export class LabSceneController {
       settings.pixelScale,
     );
 
-    // Lighting: warm golden sunlit directional + cozy peach-cream hemisphere bounce
-    this.hemiLight = new THREE.HemisphereLight('#f6ead8', '#59463c', 0.92);
+    // Lighting: bright, crisp low-poly architectural sunlight + clean sky-ground bounce
+    this.hemiLight = new THREE.HemisphereLight('#fff8eb', '#5e5869', 1.05);
     this.scene.add(this.hemiLight);
 
-    this.sunLight = new THREE.DirectionalLight('#ffe9c2', 1.55);
+    this.sunLight = new THREE.DirectionalLight('#fff2d6', 1.65);
     this.sunLight.position.set(16, 26, 12);
     this.sunLight.castShadow = true;
-    this.sunLight.shadow.mapSize.set(512, 512);
-    this.sunLight.shadow.camera.left = -16;
-    this.sunLight.shadow.camera.right = 16;
-    this.sunLight.shadow.camera.top = 16;
-    this.sunLight.shadow.camera.bottom = -16;
+    this.sunLight.shadow.mapSize.set(1024, 1024);
+    this.sunLight.shadow.camera.left = -20;
+    this.sunLight.shadow.camera.right = 20;
+    this.sunLight.shadow.camera.top = 20;
+    this.sunLight.shadow.camera.bottom = -20;
     this.sunLight.shadow.camera.near = 2;
-    this.sunLight.shadow.camera.far = 65;
-    this.sunLight.shadow.bias = -0.001;
+    this.sunLight.shadow.camera.far = 70;
+    this.sunLight.shadow.bias = -0.0008;
     this.scene.add(this.sunLight);
 
     // Floor materials (NearestFilter 16x16 procedural pixel textures)
@@ -229,6 +381,7 @@ export class LabSceneController {
     this.buildSurroundings();
     this.buildInteractiveFloorGrid();
 
+    this.scene.add(this.buildingShellGroup);
     this.scene.add(this.placedGroup);
     this.scene.add(this.staffRenderer.group);
     this.scene.add(this.particles.mesh);
@@ -310,7 +463,7 @@ export class LabSceneController {
     // Sidewalk strip between plot and road
     const curbGeo = new THREE.BoxGeometry(this.gridW + 4, 0.08, 0.9);
     const curbMat = new THREE.MeshToonMaterial({
-      color: '#d1cabf',
+      color: '#d8d2c7',
       gradientMap: this.textures.toonGradient,
     });
     const curb = new THREE.Mesh(curbGeo, curbMat);
@@ -318,10 +471,48 @@ export class LabSceneController {
     curb.receiveShadow = true;
     this.scene.add(curb);
 
-    // Cutaway architectural slab foundation border (echoes reference room diorama base)
+    // Paved driveway apron connecting the access road to the lab courtyard
+    const apronGeo = new THREE.BoxGeometry(3.2, 0.065, 2.2);
+    const apronMat = new THREE.MeshToonMaterial({
+      color: '#737988',
+      gradientMap: this.textures.toonGradient,
+    });
+    const apron = new THREE.Mesh(apronGeo, apronMat);
+    apron.position.set(0, 0.006, this.gridOffsetZ + 0.85);
+    apron.receiveShadow = true;
+    this.scene.add(apron);
+
+    // Campus streetlamps along the sidewalk with warm night glow
+    const poleGeo = new THREE.BoxGeometry(0.11, 2.1, 0.11);
+    const armGeo = new THREE.BoxGeometry(0.11, 0.09, 0.48);
+    const bulbGeo = new THREE.BoxGeometry(0.2, 0.12, 0.2);
+    const poleMat = new THREE.MeshToonMaterial({ color: '#394052', gradientMap: this.textures.toonGradient });
+    for (const lx of [-7.5, -2.5, 2.5, 7.5]) {
+      const pole = new THREE.Mesh(poleGeo, poleMat);
+      pole.position.set(lx, 1.05, this.gridOffsetZ + 0.9);
+      pole.castShadow = true;
+      this.scene.add(pole);
+
+      const arm = new THREE.Mesh(armGeo, poleMat);
+      arm.position.set(lx, 2.08, this.gridOffsetZ + 1.1);
+      this.scene.add(arm);
+
+      const bulbMat = new THREE.MeshToonMaterial({
+        color: '#fff2ba',
+        emissive: '#ffe478',
+        emissiveIntensity: 0.45,
+        gradientMap: this.textures.toonGradient,
+      });
+      const bulb = new THREE.Mesh(bulbGeo, bulbMat);
+      bulb.position.set(lx, 2.0, this.gridOffsetZ + 1.3);
+      this.scene.add(bulb);
+      this.streetLampBulbs.push(bulb);
+    }
+
+    // Cutaway architectural slab foundation border (clean diorama plinth)
     const borderGeo = new THREE.BoxGeometry(this.gridW + 0.44, 0.24, this.gridH + 0.44);
     const borderMat = new THREE.MeshToonMaterial({
-      color: '#47424d',
+      color: '#434859',
       gradientMap: this.textures.toonGradient,
     });
     const border = new THREE.Mesh(borderGeo, borderMat);
@@ -429,7 +620,43 @@ export class LabSceneController {
       }
     }
 
-    // 2. Sync placed items
+    // 1b. Rebuild dynamic camera-aware cutaway architectural shell when floor bounds or Era changes
+    let minX: number = this.gridW;
+    let maxX = -1;
+    let minZ: number = this.gridH;
+    let maxZ = -1;
+    for (let gz = 0; gz < this.gridH; gz++) {
+      for (let gx = 0; gx < this.gridW; gx++) {
+        if (game.floors[floorIndex(gx, gz, this.gridW)] !== 'grass') {
+          if (gx < minX) minX = gx;
+          if (gx > maxX) maxX = gx;
+          if (gz < minZ) minZ = gz;
+          if (gz > maxZ) maxZ = gz;
+        }
+      }
+    }
+    const eraIdx = Math.min(Math.max(0, game.eraIndex), ERA_BUILDING_THEMES.length - 1);
+    const shellSig = `${minX},${maxX},${minZ},${maxZ}|e${eraIdx}|t${game.buildingTier ?? 0}`;
+    if (force || shellSig !== this.lastShellSignature) {
+      this.lastShellSignature = shellSig;
+      if (maxX >= minX && maxZ >= minZ) {
+        this.rebuildBuildingShell(minX, maxX, minZ, maxZ, eraIdx);
+      }
+    }
+
+    // 2. Sync placed items (rebuild all item meshes cleanly whenever Era visually advances!)
+    const eraChanged = this.lastVisualEra !== -1 && this.lastVisualEra !== eraIdx;
+    this.lastVisualEra = eraIdx;
+
+    if (eraChanged) {
+      for (const entry of this.placedEntries.values()) {
+        this.placedGroup.remove(entry.built.group);
+      }
+      this.placedEntries.clear();
+      this.ghostItemId = null;
+      this.lastHighlightUid = null;
+    }
+
     const liveUids = new Set<string>();
     for (const item of game.items) {
       liveUids.add(item.uid);
@@ -450,7 +677,7 @@ export class LabSceneController {
         // Hide item currently being moved (shown via ghost preview instead)
         existing.built.group.visible = store.movingItemUid !== item.uid;
       } else {
-        const built = this.modelFactory.createModel(item.itemId);
+        const built = this.modelFactory.createModel(item.itemId, eraIdx);
         const [wx, wz] = this.itemWorldCenter(item);
         built.group.position.set(wx, 0.03, wz);
         built.group.rotation.y = (item.rotation * Math.PI) / 2;
@@ -467,7 +694,7 @@ export class LabSceneController {
     }
 
     // Spawn dust burst if player just placed a new item
-    if (!force && game.items.length > this.prevItemCount) {
+    if (!force && !eraChanged && game.items.length > this.prevItemCount) {
       const newest = game.items[game.items.length - 1];
       if (newest) {
         const [wx, wz] = this.itemWorldCenter(newest);
@@ -563,7 +790,7 @@ export class LabSceneController {
       if (!def?.isFloorTile) {
         if (this.ghostItemId !== buildItemId) {
           if (this.ghostGroup) this.scene.remove(this.ghostGroup);
-          this.ghostGroup = this.modelFactory.createModel(buildItemId).group;
+          this.ghostGroup = this.modelFactory.createModel(buildItemId, game.eraIndex).group;
           this.ghostGroup.traverse((obj) => {
             if ((obj as THREE.Mesh).isMesh) {
               const m = obj as THREE.Mesh;
@@ -658,11 +885,24 @@ export class LabSceneController {
       .copy(_sunColorNight)
       .lerp(_sunColorDay, dayFactor)
       .lerp(_sunColorSunset, sunsetFactor * 0.55);
-    this.sunLight.intensity = 0.65 + dayFactor * 0.95;
-    this.hemiLight.intensity = 0.45 + dayFactor * 0.55;
+    this.sunLight.intensity = 0.85 + dayFactor * 1.05;
+    this.hemiLight.intensity = 0.62 + dayFactor * 0.56;
 
-    // Night emissive glow for windows & monitors + blinking server LEDs
+    // Night emissive glow for architectural windows, streetlamps & monitors + blinking server LEDs
     const nightGlow = 1 - dayFactor * 0.72;
+    for (const winMesh of this.shellWindowMeshes) {
+      const mat = winMesh.material as THREE.MeshToonMaterial;
+      mat.emissiveIntensity = 0.2 + nightGlow * 0.78;
+    }
+    for (const glowMesh of this.shellGlowMeshes) {
+      const mat = glowMesh.material as THREE.MeshToonMaterial;
+      mat.emissiveIntensity = 0.65 + Math.sin(this.elapsedRealSec * 2.6) * 0.25 + nightGlow * 0.35;
+    }
+    for (const bulb of this.streetLampBulbs) {
+      const mat = bulb.material as THREE.MeshToonMaterial;
+      mat.emissiveIntensity = 0.2 + nightGlow * 1.1;
+    }
+
     const isTraining = game.trainingJobs.length > 0;
     const blinkPhase = this.elapsedRealSec * (isTraining ? 7.5 : 3.2);
 
@@ -670,36 +910,63 @@ export class LabSceneController {
     for (const entry of this.placedEntries.values()) {
       for (const m of entry.built.nightGlowMeshes) {
         const mat = m.material as THREE.MeshToonMaterial;
-        mat.emissiveIntensity = 0.18 + nightGlow * 0.85;
+        mat.emissiveIntensity = 0.22 + nightGlow * 0.85;
       }
       for (const m of entry.built.blinkMeshes) {
         const mat = m.material as THREE.MeshToonMaterial;
-        const pulse = Math.sin(blinkPhase + idx * 1.37) > 0.05 ? 1.25 : 0.22;
+        const pulse = Math.sin(blinkPhase + idx * 1.37) > 0.05 ? 1.25 : 0.24;
         mat.emissiveIntensity = pulse;
         idx++;
       }
     }
 
-    // Spawn ambient steam puffs & compute sparks
+    // Spawn ambient steam puffs, cooling mist & quantum/singularity compute sparks
     this.particleSpawnAccum += dt;
-    if (this.particleSpawnAccum >= 0.28) {
+    if (this.particleSpawnAccum >= 0.26) {
       this.particleSpawnAccum = 0;
       for (const entry of this.placedEntries.values()) {
         const [wx, wz] = this.itemWorldCenter(entry);
-        if (entry.itemId === 'cooling_tower') {
+        if (entry.itemId === 'cooling_tower' || entry.itemId === 'cryo_spire') {
           this.particles.spawn(
             wx + (Math.random() - 0.5) * 0.45,
-            1.8,
+            entry.itemId === 'cryo_spire' ? 2.3 : 1.8,
             wz + (Math.random() - 0.5) * 0.45,
-            0.18,
-            0.75,
-            -0.1,
-            0.22,
-            1.4,
-            '#faf7eb',
+            0.14,
+            0.78,
+            -0.08,
+            0.2,
+            1.35,
+            entry.itemId === 'cryo_spire' ? '#8de4ff' : '#faf7eb',
           );
         } else if (entry.itemId === 'coffee_machine' && Math.random() < 0.35) {
           this.particles.spawn(wx, 0.98, wz, 0.05, 0.35, 0.02, 0.07, 0.9, '#faf7eb');
+        } else if (
+          (entry.itemId === 'quantum_core' || entry.itemId === 'singularity_core') &&
+          Math.random() < (isTraining ? 0.65 : 0.35)
+        ) {
+          this.particles.spawn(
+            wx + (Math.random() - 0.5) * 0.75,
+            1.25 + Math.random() * 0.5,
+            wz + (Math.random() - 0.5) * 0.75,
+            (Math.random() - 0.5) * 0.25,
+            0.95,
+            (Math.random() - 0.5) * 0.25,
+            0.09,
+            0.85,
+            entry.itemId === 'singularity_core' ? '#ffe478' : '#68f2ff',
+          );
+        } else if (entry.itemId === 'fusion_reactor' && Math.random() < 0.45) {
+          this.particles.spawn(
+            wx + (Math.random() - 0.5) * 0.5,
+            1.5,
+            wz + (Math.random() - 0.5) * 0.5,
+            0,
+            0.9,
+            0,
+            0.1,
+            0.8,
+            '#68f2ff',
+          );
         } else if (
           isTraining &&
           (entry.itemId === 'gpu_rig_2010' ||
@@ -720,6 +987,296 @@ export class LabSceneController {
           );
         }
       }
+    }
+  }
+
+  private clearBuildingShell(): void {
+    this.buildingShellGroup.clear();
+    for (const item of this.shellDisposables) {
+      item.dispose();
+    }
+    this.shellDisposables = [];
+    this.wallAssemblies = [];
+    this.shellWindowMeshes = [];
+    this.shellGlowMeshes = [];
+  }
+
+  /**
+   * Builds sleek Era-themed architectural walls around the active indoor footprint.
+   * Front walls automatically drop to clean low curbs based on camera yaw so the
+   * interior lab is ALWAYS unobstructed from every 90-degree angle!
+   */
+  private rebuildBuildingShell(
+    minX: number,
+    maxX: number,
+    minZ: number,
+    maxZ: number,
+    eraIdx: number,
+  ): void {
+    this.clearBuildingShell();
+    const theme = ERA_BUILDING_THEMES[eraIdx] ?? ERA_BUILDING_THEMES[0];
+
+    // Harmonize interior floor material tones with the current Era aesthetic (2010 oak → 2045 pearl-cyan → 2100 celestial marble)
+    this.floorMaterials.garage.color.set(theme.floorTint.garage);
+    this.floorMaterials.lab.color.set(theme.floorTint.lab);
+    this.floorMaterials.server.color.set(theme.floorTint.server);
+    this.floorMaterials.lounge.color.set(theme.floorTint.lounge);
+
+    const wLeft = minX - this.gridOffsetX;
+    const wRight = maxX + 1 - this.gridOffsetX;
+    const wTop = minZ - this.gridOffsetZ;
+    const wBottom = maxZ + 1 - this.gridOffsetZ;
+    const spanX = wRight - wLeft;
+    const spanZ = wBottom - wTop;
+    const cx = (wLeft + wRight) * 0.5;
+    const cz = (wTop + wBottom) * 0.5;
+
+    const wallThick = 0.22;
+    const curbH = 0.24;
+    const upperH = theme.wallHeight - curbH;
+
+    const track = <T extends THREE.BufferGeometry | THREE.Material>(obj: T): T => {
+      this.shellDisposables.push(obj);
+      return obj;
+    };
+
+    const wallMainMat = track(
+      new THREE.MeshToonMaterial({
+        color: theme.wallMain,
+        ...(eraIdx <= 1 ? { map: this.textures.wallPlaster } : {}),
+        gradientMap: this.textures.toonGradient,
+      }),
+    );
+    const wallExtMat = track(
+      new THREE.MeshToonMaterial({
+        color: theme.wallExterior,
+        gradientMap: this.textures.toonGradient,
+      }),
+    );
+    const baseMat = track(
+      new THREE.MeshToonMaterial({ color: theme.baseboard, gradientMap: this.textures.toonGradient }),
+    );
+    const corniceMat = track(
+      new THREE.MeshToonMaterial({ color: theme.cornice, gradientMap: this.textures.toonGradient }),
+    );
+    const pilasterMat = track(
+      new THREE.MeshToonMaterial({ color: theme.pilaster, gradientMap: this.textures.toonGradient }),
+    );
+    const frameMat = track(
+      new THREE.MeshToonMaterial({ color: theme.windowFrame, gradientMap: this.textures.toonGradient }),
+    );
+    const glassMat = track(
+      new THREE.MeshToonMaterial({
+        color: theme.windowGlass,
+        emissive: theme.windowEmissive,
+        emissiveIntensity: 0.32,
+        gradientMap: this.textures.toonGradient,
+      }),
+    );
+    const accentMat = theme.accentStrip
+      ? track(
+          new THREE.MeshToonMaterial({
+            color: theme.accentStrip,
+            emissive: theme.accentEmissive ?? '#000000',
+            emissiveIntensity: theme.accentEmissive ? 0.72 : 0,
+            gradientMap: this.textures.toonGradient,
+          }),
+        )
+      : null;
+
+    // 4 architectural corner plinth posts (always grounded; Era 4+ gets luminous beacons)
+    const corners: Array<[number, number]> = [
+      [wLeft - wallThick * 0.5, wTop - wallThick * 0.5],
+      [wRight + wallThick * 0.5, wTop - wallThick * 0.5],
+      [wLeft - wallThick * 0.5, wBottom + wallThick * 0.5],
+      [wRight + wallThick * 0.5, wBottom + wallThick * 0.5],
+    ];
+    const cornerCurbGeo = track(new THREE.BoxGeometry(wallThick + 0.14, curbH + 0.08, wallThick + 0.14));
+    for (const [px, pz] of corners) {
+      const post = new THREE.Mesh(cornerCurbGeo, baseMat);
+      post.position.set(px, (curbH + 0.08) * 0.5, pz);
+      post.castShadow = true;
+      post.receiveShadow = true;
+      this.buildingShellGroup.add(post);
+    }
+
+    const buildWallSide = (
+      side: 'north' | 'south' | 'west' | 'east',
+      nx: number,
+      nz: number,
+      length: number,
+      posX: number,
+      posZ: number,
+      rotY: number,
+    ) => {
+      const wallRoot = new THREE.Group();
+      wallRoot.position.set(posX, 0, posZ);
+      wallRoot.rotation.y = rotY;
+      this.buildingShellGroup.add(wallRoot);
+
+      // Permanent low cutaway curb (always frames the building footprint cleanly)
+      const curbGeo = track(new THREE.BoxGeometry(length + wallThick * 2, curbH, wallThick + 0.04));
+      const curbMesh = new THREE.Mesh(curbGeo, baseMat);
+      curbMesh.position.set(0, curbH * 0.5, 0);
+      curbMesh.castShadow = true;
+      curbMesh.receiveShadow = true;
+      wallRoot.add(curbMesh);
+
+      // Subtle glowing trim line along curb for Era 5 & 6
+      if (accentMat && eraIdx >= 5) {
+        const curbGlowGeo = track(new THREE.BoxGeometry(length + wallThick, 0.05, wallThick + 0.07));
+        const curbGlow = new THREE.Mesh(curbGlowGeo, accentMat);
+        curbGlow.position.set(0, curbH - 0.03, 0);
+        wallRoot.add(curbGlow);
+        this.shellGlowMeshes.push(curbGlow);
+      }
+
+      // Upper dynamic cutaway wall anchored at y = curbH (scales smoothly along Y!)
+      const upperGroup = new THREE.Group();
+      upperGroup.position.set(0, curbH, 0);
+      wallRoot.add(upperGroup);
+
+      // Main architectural wall body (inner cream/porcelain + outer facade cladding)
+      const innerBodyGeo = track(new THREE.BoxGeometry(length + wallThick * 1.8, upperH, wallThick * 0.58));
+      const innerBody = new THREE.Mesh(innerBodyGeo, wallMainMat);
+      innerBody.position.set(0, upperH * 0.5, wallThick * 0.21);
+      innerBody.castShadow = true;
+      innerBody.receiveShadow = true;
+      upperGroup.add(innerBody);
+
+      const outerBodyGeo = track(new THREE.BoxGeometry(length + wallThick * 1.8, upperH, wallThick * 0.46));
+      const outerBody = new THREE.Mesh(outerBodyGeo, wallExtMat);
+      outerBody.position.set(0, upperH * 0.5, -wallThick * 0.25);
+      outerBody.castShadow = true;
+      outerBody.receiveShadow = true;
+      upperGroup.add(outerBody);
+
+      // Clean cutaway top cornice cap
+      const capGeo = track(new THREE.BoxGeometry(length + wallThick * 2.15, 0.14, wallThick + 0.14));
+      const cap = new THREE.Mesh(capGeo, corniceMat);
+      cap.position.set(0, upperH + 0.05, 0);
+      cap.castShadow = true;
+      upperGroup.add(cap);
+
+      // Era horizontal accent channel near top cornice (Era 1+)
+      if (accentMat) {
+        const stripGeo = track(new THREE.BoxGeometry(length + wallThick * 1.9, 0.09, wallThick + 0.09));
+        const strip = new THREE.Mesh(stripGeo, accentMat);
+        strip.position.set(0, upperH - 0.16, 0);
+        upperGroup.add(strip);
+        if (theme.accentEmissive) this.shellGlowMeshes.push(strip);
+      }
+
+      // Repeating architectural window bays & structural pilasters every ~2.2 tiles
+      const bayCount = Math.max(2, Math.floor(length / 2.2));
+      const baySpacing = length / bayCount;
+      const winW = Math.min(1.45, baySpacing * 0.64);
+      const winH = eraIdx >= 2 ? upperH * 0.62 : upperH * 0.48;
+      const winY = upperH * 0.52;
+
+      const winFrameGeo = track(new THREE.BoxGeometry(winW + 0.14, winH + 0.14, wallThick + 0.08));
+      const winGlassGeo = track(new THREE.BoxGeometry(winW, winH, wallThick + 0.11));
+      const mullionVGeo = track(new THREE.BoxGeometry(0.06, winH, wallThick + 0.13));
+      const sillGeo = track(new THREE.BoxGeometry(winW + 0.24, 0.08, wallThick + 0.16));
+      const pilasterGeo = track(new THREE.BoxGeometry(0.22, upperH + 0.06, wallThick + 0.12));
+
+      for (let b = 0; b < bayCount; b++) {
+        const bx = -length * 0.5 + (b + 0.5) * baySpacing;
+
+        // South wall center bay = sleek architectural entrance double-door!
+        const isDoorBay = side === 'south' && b === Math.floor(bayCount / 2);
+        if (isDoorBay) {
+          const doorFrameGeo = track(new THREE.BoxGeometry(1.5, upperH * 0.82, wallThick + 0.1));
+          const doorFrame = new THREE.Mesh(doorFrameGeo, frameMat);
+          doorFrame.position.set(bx, upperH * 0.41, 0);
+          upperGroup.add(doorFrame);
+
+          const doorGlassGeo = track(new THREE.BoxGeometry(1.24, upperH * 0.72, wallThick + 0.12));
+          const doorGlass = new THREE.Mesh(doorGlassGeo, glassMat);
+          doorGlass.position.set(bx, upperH * 0.38, 0);
+          upperGroup.add(doorGlass);
+          this.shellWindowMeshes.push(doorGlass);
+        } else {
+          const frame = new THREE.Mesh(winFrameGeo, frameMat);
+          frame.position.set(bx, winY, 0);
+          upperGroup.add(frame);
+
+          const glass = new THREE.Mesh(winGlassGeo, glassMat);
+          glass.position.set(bx, winY, 0);
+          upperGroup.add(glass);
+          this.shellWindowMeshes.push(glass);
+
+          // Mullion bar for classic 2010–2025 architectural rhythm (frameless holo-glass in 2045/2100)
+          if (eraIdx < 5) {
+            const mullion = new THREE.Mesh(mullionVGeo, frameMat);
+            mullion.position.set(bx, winY, 0);
+            upperGroup.add(mullion);
+          }
+
+          const sill = new THREE.Mesh(sillGeo, corniceMat);
+          sill.position.set(bx, winY - winH * 0.5 - 0.06, 0);
+          upperGroup.add(sill);
+        }
+
+        // Structural pilaster column between bays
+        if (b < bayCount - 1) {
+          const px = -length * 0.5 + (b + 1) * baySpacing;
+          const pilaster = new THREE.Mesh(pilasterGeo, pilasterMat);
+          pilaster.position.set(px, upperH * 0.5, 0);
+          pilaster.castShadow = true;
+          upperGroup.add(pilaster);
+        }
+      }
+
+      // Corner pinnacle beacons for Frontier / Quantum / Singularity Eras (4..6)
+      if (theme.cornerBeacon) {
+        const beaconMat = track(
+          new THREE.MeshToonMaterial({
+            color: theme.cornerBeacon,
+            emissive: theme.cornerBeacon,
+            emissiveIntensity: 0.9,
+            gradientMap: this.textures.toonGradient,
+          }),
+        );
+        const beaconGeo = track(new THREE.BoxGeometry(0.24, 0.24, 0.24));
+        for (const endX of [-length * 0.5 - wallThick * 0.5, length * 0.5 + wallThick * 0.5]) {
+          const bMesh = new THREE.Mesh(beaconGeo, beaconMat);
+          bMesh.position.set(endX, upperH + 0.28, 0);
+          upperGroup.add(bMesh);
+          this.shellGlowMeshes.push(bMesh);
+        }
+      }
+
+      this.wallAssemblies.push({
+        nx,
+        nz,
+        upperGroup,
+        currentScaleY: 1,
+      });
+    };
+
+    // North wall (outward normal 0, -1), South (0, +1), West (-1, 0), East (+1, 0)
+    buildWallSide('north', 0, -1, spanX, cx, wTop - wallThick * 0.5, 0);
+    buildWallSide('south', 0, 1, spanX, cx, wBottom + wallThick * 0.5, Math.PI);
+    buildWallSide('west', -1, 0, spanZ, wLeft - wallThick * 0.5, cz, Math.PI / 2);
+    buildWallSide('east', 1, 0, spanZ, wRight + wallThick * 0.5, cz, -Math.PI / 2);
+
+    // Apply initial cutaway state immediately so frame 1 never flickers
+    this.updateWallCutaway(1.0);
+  }
+
+  private updateWallCutaway(dt: number): void {
+    const camDirX = Math.sin(this.currentYaw);
+    const camDirZ = Math.cos(this.currentYaw);
+    const lerpT = dt >= 0.99 ? 1 : 1 - Math.exp(-16 * Math.min(0.1, dt));
+
+    for (const wall of this.wallAssemblies) {
+      // Positive dot means wall faces the camera (FRONT wall -> drop to clean cutaway curb!)
+      const dot = wall.nx * camDirX + wall.nz * camDirZ;
+      const targetScaleY = dot > 0.05 ? 0.001 : 1.0;
+      wall.currentScaleY += (targetScaleY - wall.currentScaleY) * lerpT;
+      wall.upperGroup.scale.y = Math.max(0.001, wall.currentScaleY);
+      wall.upperGroup.visible = wall.currentScaleY > 0.04;
     }
   }
 
@@ -1223,6 +1780,7 @@ export class LabSceneController {
     this.particles.update(rawDt);
 
     const { subX, subY } = this.updateCameraAndComputeSnap(rawDt);
+    this.updateWallCutaway(rawDt);
 
     const settings = freshStore.game.settings;
     const isSellHover = freshStore.buildTool === 'sell' && this.hoveredItemUid !== null;
@@ -1256,6 +1814,7 @@ export class LabSceneController {
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.onWindowBlur);
 
+    this.clearBuildingShell();
     this.pipeline.dispose();
     this.staffRenderer.dispose();
     this.particles.dispose();

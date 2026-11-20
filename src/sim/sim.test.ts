@@ -5,13 +5,18 @@ import { createInitialState, deserializeSave, serializeSave } from './save';
 import { canPlaceItem, movePlacedItem, placeItem, sellPlacedItem } from './grid';
 import { computeResources, raiseFundingRound, unlockTech } from './economy';
 import { hireCandidate, fireStaff } from './staffSim';
-import { acquireDataset, shipModelAsProduct, startTrainingJob } from './training';
+import { acquireDataset, maxAllTrainedModels, shipModelAsProduct, startTrainingJob } from './training';
 import { calculateOfflineProgress, resolveActiveEvent, stepSimulation, triggerRandomEventNow } from './engine';
+import { applyMaxHyperscaleHQ, autoFurnishLab, upgradeBuildingTier } from './facility';
+import { ERAS, TECH_NODES } from '../data/techs';
+import { DATASETS } from '../data/datasets';
 
 test('initial state boots in 2010 with valid compute, desks, and starter staff', () => {
   const state = createInitialState(1_000_000);
   assert.equal(state.year, 2010);
   assert.equal(state.eraIndex, 0);
+  assert.equal(state.buildingTier, 0);
+  assert.equal(state.automation.autoFurnish, true);
   assert.equal(state.staff.length, 2);
   const res = computeResources(state);
   assert.ok(res.computeTotal >= 50, `Expected starter compute >= 50, got ${res.computeTotal}`);
@@ -49,8 +54,11 @@ test('grid placement, rotation, move, and sell refund work accurately', () => {
   assert.equal(state.items.some((i) => i.uid === placed.placedUid), false);
 });
 
-test('staff hiring respects desk capacity and updates payroll', () => {
+test('staff hiring respects manual desk capacity and auto-furnishes when enabled', () => {
   const state = createInitialState(1_000_000);
+  state.cash = 50_000;
+  state.automation.autoFurnish = false;
+
   const beforePayroll = computeResources(state).payrollPerDay;
   const candId = state.candidates[0].id;
   const hired = hireCandidate(state, candId);
@@ -58,13 +66,20 @@ test('staff hiring respects desk capacity and updates payroll', () => {
   assert.equal(state.staff.length, 3);
   assert.ok(computeResources(state).payrollPerDay > beforePayroll);
 
-  // Desk slots = 3, so hiring a 4th should fail until another desk is built
-  const fourth = hireCandidate(state, state.candidates[0].id);
-  assert.equal(fourth.ok, false);
+  // With autoFurnish OFF and desk slots = 3, hiring a 4th fails
+  const fourthBlocked = hireCandidate(state, state.candidates[0].id);
+  assert.equal(fourthBlocked.ok, false);
+
+  // With autoFurnish ON, hiring a 4th automatically adds a desk and succeeds!
+  state.automation.autoFurnish = true;
+  const fourthAuto = hireCandidate(state, state.candidates[0].id);
+  assert.equal(fourthAuto.ok, true);
+  assert.equal(state.staff.length, 4);
+  assert.ok(computeResources(state).deskSlots >= 4);
 
   // Fire one staff
   assert.equal(fireStaff(state, state.staff[2].id), true);
-  assert.equal(state.staff.length, 2);
+  assert.equal(state.staff.length, 3);
 });
 
 test('training pipeline completes a model and shipping generates product revenue', () => {
@@ -137,7 +152,6 @@ test('tech tree, datasets, funding rounds, and events mutate state cleanly', () 
 
 test('save serialization, migration, and capped offline progress work deterministically', () => {
   const state = createInitialState(1_000_000);
-  // Give a profitable product so offline earnings are positive
   state.products.push({
     id: 'prd_1',
     modelId: 'mdl_1',
@@ -156,9 +170,70 @@ test('save serialization, migration, and capped offline progress work determinis
   assert.equal(restored!.cash, state.cash);
   assert.equal(restored!.items.length, state.items.length);
 
-  // Simulate 1 hour offline (3600s)
   const summary = calculateOfflineProgress(restored!, 3_600);
   assert.equal(summary.elapsedRealSeconds, 3_600);
   assert.ok(summary.simulatedGameDays > 100);
   assert.ok(summary.cashEarned > 0);
+});
+
+test('building tiers upgrade space, auto-furnish balances lab, and Max Hyperscale HQ deploys huge compute', () => {
+  const state = createInitialState(1_000_000);
+  state.cash = 1_000_000;
+
+  const up1 = upgradeBuildingTier(state);
+  assert.equal(up1.ok, true);
+  assert.equal(state.buildingTier, 1);
+
+  const furnished = autoFurnishLab(state);
+  assert.ok(furnished.placedCount >= 0);
+
+  // Max Hyperscale HQ cheat works even from 2010 era AND scales to 2100 Singularity
+  applyMaxHyperscaleHQ(state);
+  assert.equal(state.buildingTier, 3);
+  const res2010 = computeResources(state);
+  assert.ok(res2010.computeTotal >= 4_500, `Expected Max HQ compute >= 4500, got ${res2010.computeTotal}`);
+  assert.equal(res2010.isUnderpowered, false);
+  assert.equal(res2010.isOverheated, false);
+
+  state.eraIndex = 6;
+  applyMaxHyperscaleHQ(state);
+  const res2100 = computeResources(state);
+  assert.ok(res2100.computeTotal >= 35_000, `Expected 2100 Singularity HQ compute >= 35000, got ${res2100.computeTotal}`);
+});
+
+test('perfect model quality override scores 100 across all aspects and eras span 2010 to 2100 with rich archs & datasets', () => {
+  // Verify every Era (0..6, up to 2100) has >= 2 architectures and >= 3 datasets
+  assert.equal(ERAS[ERAS.length - 1].startYear, 2100);
+  for (const era of ERAS) {
+    const eraArchs = TECH_NODES.filter((t) => t.eraIndex === era.index && t.unlocksArchitecture);
+    const eraData = DATASETS.filter((d) => d.unlockEra === era.index);
+    assert.ok(eraArchs.length >= 2, `Era ${era.startYear} should have >=2 architectures, found ${eraArchs.length}`);
+    assert.ok(eraData.length >= 3, `Era ${era.startYear} should have >=3 datasets, found ${eraData.length}`);
+  }
+
+  // Verify cheatPerfectModels produces 100/100 in all 5 aspects
+  const state = createInitialState(1_000_000);
+  state.cheatPerfectModels = true;
+  const res = computeResources(state);
+  startTrainingJob(state, 'arch_convnet', 'ds_academic_vision', res.computeAvailable);
+  for (let i = 0; i < 400 && state.models.length === 0; i++) {
+    stepSimulation(state, 0.25);
+  }
+  assert.equal(state.models.length, 1);
+  assert.deepEqual(state.models[0].benchmarks, {
+    overall: 100,
+    reasoning: 100,
+    coding: 100,
+    multimodal: 100,
+    safety: 100,
+  });
+
+  // Verify maxAllTrainedModels upgrades imperfect existing models & products to 100
+  state.models[0].benchmarks.overall = 42;
+  state.models[0].benchmarks.safety = 60;
+  shipModelAsProduct(state, state.models[0].id);
+  maxAllTrainedModels(state);
+  assert.equal(state.models[0].benchmarks.overall, 100);
+  assert.equal(state.models[0].benchmarks.safety, 100);
+  assert.equal(state.products[0].quality, 100);
 });

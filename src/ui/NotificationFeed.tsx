@@ -14,7 +14,7 @@ export function NotificationFeed() {
   return (
     <div
       aria-live="polite"
-      className={`pointer-events-none fixed top-[98px] sm:top-[64px] [@media(max-height:500px)]:top-[58px] right-2 sm:right-3 z-10 flex-col gap-1.5 w-[min(320px,calc(100vw-16px))] ${
+      className={`pointer-events-none fixed top-[54px] sm:top-[62px] [@media(max-height:500px)]:top-[42px] right-2 sm:right-3 z-10 flex-col gap-1.5 w-[min(300px,calc(100vw-16px))] [@media(max-height:500px)]:w-auto [@media(max-height:500px)]:max-w-[270px] ${
         buildTool !== 'select' ? 'hidden sm:flex [@media(max-height:500px)]:hidden' : 'flex'
       }`}
     >
@@ -31,7 +31,7 @@ export function NotificationFeed() {
           <div
             key={n.id}
             style={{ opacity: idx === 0 ? 1 : idx === 1 ? 0.85 : 0.65 }}
-            className={`pixel-inset px-2.5 py-1.5 [@media(max-height:500px)]:py-1 text-[11px] sm:text-xs text-[#faf7eb] border-[#45506b] ${
+            className={`pixel-inset px-2.5 py-1.5 [@media(max-height:500px)]:px-2 [@media(max-height:500px)]:py-0.5 text-[11px] sm:text-xs [@media(max-height:500px)]:text-[10px] [@media(max-height:500px)]:truncate text-[#faf7eb] border-[#45506b] ${
               idx > 0 ? 'hidden sm:block [@media(max-height:500px)]:hidden' : ''
             }`}
           >

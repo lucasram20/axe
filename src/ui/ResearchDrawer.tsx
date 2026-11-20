@@ -14,15 +14,15 @@ export function ResearchDrawer() {
   return (
     <section
       aria-label="Research and eras"
-      className="pointer-events-auto fixed bottom-[84px] sm:bottom-[104px] [@media(max-height:500px)]:bottom-[68px] left-1/2 -translate-x-1/2 z-20 w-[min(900px,96vw)] max-h-[calc(100dvh-180px)] [@media(max-height:500px)]:max-h-[calc(100dvh-126px)] overflow-y-auto pixel-scroll pixel-frame p-2.5 sm:p-3 [@media(max-height:500px)]:p-2"
+      className="pointer-events-auto fixed bottom-[84px] sm:bottom-[104px] [@media(max-height:500px)]:bottom-[54px] left-1/2 -translate-x-1/2 z-20 w-[min(900px,96vw)] max-h-[calc(100dvh-176px)] [@media(max-height:500px)]:max-h-[calc(100dvh-98px)] overflow-y-auto pixel-scroll pixel-frame p-2.5 sm:p-3 [@media(max-height:500px)]:p-2"
     >
-      <div className="flex items-center justify-between gap-2 pb-2 mb-2 border-b-2 border-[#2e344b]">
+      <div className="flex items-center justify-between gap-2 pb-1.5 mb-2 border-b-2 border-[#2e344b]">
         <div>
-          <h2 className="font-pixel-display text-sm text-[#ffe478]">
-            Research Tree & Eras
+          <h2 className="font-pixel-display text-xs sm:text-sm text-[#ffe478]">
+            Research Tree &amp; Eras (2010 → 2100)
           </h2>
-          <p className="text-xs text-[#b8c0cf]">
-            Timeline advances automatically from 2010 through the Agentic Frontier.
+          <p className="text-[11px] sm:text-xs text-[#b8c0cf]">
+            Unlock era-specific architectures and watch your HQ, desks, and hardware evolve from 2010 to 2100.
           </p>
         </div>
         <button
@@ -35,7 +35,7 @@ export function ResearchDrawer() {
         </button>
       </div>
 
-      <div className="space-y-3 max-h-[280px] overflow-y-auto pixel-scroll pr-1">
+      <div className="space-y-2.5 max-h-[280px] [@media(max-height:500px)]:max-h-[168px] overflow-y-auto pixel-scroll pr-1">
         {ERAS.map((era) => {
           const reached = game.eraIndex >= era.index;
           const nodes = TECH_NODES.filter((t) => t.eraIndex === era.index);

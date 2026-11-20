@@ -79,7 +79,7 @@ export function canPlaceItem(
     return { valid: false, reason: 'Locked (higher Era required)' };
   }
 
-  if (!options?.skipCostCheck && state.cash < def.cost) {
+  if (!options?.skipCostCheck && !state.cheatFreeBuild && state.cash < def.cost) {
     return { valid: false, reason: 'Insufficient funds' };
   }
 
@@ -100,8 +100,13 @@ export function canPlaceItem(
         continue;
       }
 
-      // Equipment must be placed on indoor flooring (not grass yard) unless it's a cooling tower or substation
-      const outdoorAllowed = itemId === 'cooling_tower' || itemId === 'substation' || itemId === 'power_gen';
+      // Equipment must be placed on indoor flooring (not grass yard) unless it's outdoor utility hardware
+      const outdoorAllowed =
+        itemId === 'cooling_tower' ||
+        itemId === 'substation' ||
+        itemId === 'power_gen' ||
+        itemId === 'fusion_reactor' ||
+        itemId === 'cryo_spire';
       if (fType === 'grass' && !outdoorAllowed) {
         return { valid: false, reason: 'Build floor tile first' };
       }
@@ -136,7 +141,9 @@ export function placeItem(
   if (!check.valid) return { ok: false, reason: check.reason };
 
   const def = CATALOG_BY_ID[itemId]!;
-  state.cash -= def.cost;
+  if (!state.cheatFreeBuild) {
+    state.cash -= def.cost;
+  }
 
   if (def.isFloorTile && def.floorType) {
     state.floors[floorIndex(gx, gz, state.gridWidth)] = def.floorType;

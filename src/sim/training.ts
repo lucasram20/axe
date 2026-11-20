@@ -179,16 +179,24 @@ function evaluateTrainedModel(
     state.safety * 0.75 + safetyStaffBonus + Math.min(12, dataStaffPower * 0.5) - riskPenalty + (r2 - 0.5) * 5,
   );
 
-  const benchmarks: BenchmarkScores = {
-    overall,
-    reasoning: clampScore(overall + catBonus.reasoning + (r1 - 0.5) * 6),
-    coding: clampScore(overall + catBonus.coding + (r2 - 0.5) * 6),
-    multimodal: clampScore(overall + catBonus.multimodal + (r1 - r2) * 5),
-    safety: safetyScore,
-  };
+  const benchmarks: BenchmarkScores = state.cheatPerfectModels
+    ? {
+        overall: 100,
+        reasoning: 100,
+        coding: 100,
+        multimodal: 100,
+        safety: 100,
+      }
+    : {
+        overall,
+        reasoning: clampScore(overall + catBonus.reasoning + (r1 - 0.5) * 6),
+        coding: clampScore(overall + catBonus.coding + (r2 - 0.5) * 6),
+        multimodal: clampScore(overall + catBonus.multimodal + (r1 - r2) * 5),
+        safety: safetyScore,
+      };
 
-  // Slight risk check for risky datasets
-  if (ds && ds.legalityRisk >= 15 && r2 < 0.25) {
+  // Slight risk check for risky datasets (bypassed when perfect model override is active)
+  if (!state.cheatPerfectModels && ds && ds.legalityRisk >= 15 && r2 < 0.25) {
     state.safety = Math.max(10, state.safety - 4);
     pushNotification(
       state,
@@ -211,6 +219,43 @@ function evaluateTrainedModel(
   };
 
   return model;
+}
+
+/**
+ * Founder Vault override: maximizes every trained model in the library to 100/100
+ * across all 5 benchmark aspects and boosts all live shipped products to quality 100.
+ */
+export function maxAllTrainedModels(state: GameState): number {
+  for (const m of state.models) {
+    m.benchmarks = {
+      overall: 100,
+      reasoning: 100,
+      coding: 100,
+      multimodal: 100,
+      safety: 100,
+    };
+  }
+  for (const p of state.products) {
+    p.quality = 100;
+    p.decayFactor = Math.max(p.decayFactor, 1.8);
+    p.users = Math.max(p.users, 12_000);
+    p.revenuePerDay =
+      p.users * BALANCE.baseRevenuePerUserPerDay * (0.7 + 100 / 60) * p.decayFactor;
+  }
+  if (state.models.length > 0 || state.products.length > 0) {
+    pushNotification(
+      state,
+      `Perfected ${state.models.length} model(s) & ${state.products.length} product(s) to 100/100 in all aspects!`,
+      'good',
+    );
+  } else {
+    pushNotification(
+      state,
+      'Perfect Model Override ready — train a model to score 100/100 across all aspects!',
+      'good',
+    );
+  }
+  return state.models.length;
 }
 
 export function stepTrainingJobs(

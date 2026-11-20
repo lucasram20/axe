@@ -53,6 +53,7 @@ export function createInitialState(nowMs: number = Date.now()): GameState {
     bonusCompute: 0,
     extraGridPowerContracts: 0,
 
+    buildingTier: 0,
     gridWidth: w,
     gridHeight: h,
     floors,
@@ -90,15 +91,16 @@ export function createInitialState(nowMs: number = Date.now()): GameState {
       autoQueueTraining: false,
       autoBuyPower: false,
       autoHireStaff: false,
+      autoFurnish: true,
       lastArchId: 'arch_convnet',
       lastDatasetId: 'ds_academic_vision',
     },
 
     settings: {
-      pixelScale: 3, // ~480x270 on 1440x900 desktop
+      pixelScale: 1, // Crisp low-poly pixel look (full clarity on mobile & desktop)
       outlines: true,
       shadows: true,
-      paletteQuantize: true,
+      paletteQuantize: false,
       edgeScroll: false,
       muted: false,
     },
@@ -106,50 +108,40 @@ export function createInitialState(nowMs: number = Date.now()): GameState {
     notifications: [
       {
         id: 'ntf_welcome',
-        text: 'Welcome to 2010! Train your first ConvNet or expand your garage compute.',
+        text: 'Welcome to 2010! Train your first ConvNet, upgrade your HQ, or hire researchers (Auto-Furnish is ON).',
         tone: 'good',
         day: 0,
       },
     ],
 
+    cheatPerfectModels: false,
+    cheatFreeBuild: false,
+
     lastCompletedModelId: null,
     lastSavedAtMs: nowMs,
   };
 
-  // Seed a charming, dense, living starter 2010 garage AI lab!
+  // Seed a clean, airy, well-spaced starter 2010 garage AI lab!
+  // Architectural perimeter walls are now rendered dynamically with camera-aware cutaway in LabScene.ts.
   const starterProps: Array<{ itemId: string; gx: number; gz: number; rot: 0 | 1 | 2 | 3 }> = [
-    // Back window walls along north & west interior edges (never blocking camera view from SE!)
-    { itemId: 'wall_glass', gx: 4, gz: 4, rot: 0 },
-    { itemId: 'wall_glass', gx: 5, gz: 4, rot: 0 },
-    { itemId: 'wall_glass', gx: 6, gz: 4, rot: 0 },
-    { itemId: 'wall_glass', gx: 7, gz: 4, rot: 0 },
-    { itemId: 'wall_glass', gx: 8, gz: 4, rot: 0 },
-    { itemId: 'wall_glass', gx: 9, gz: 4, rot: 0 },
-    { itemId: 'wall_glass', gx: 10, gz: 4, rot: 0 },
-    { itemId: 'wall_glass', gx: 11, gz: 4, rot: 0 },
-    { itemId: 'wall_glass', gx: 4, gz: 5, rot: 1 },
-    { itemId: 'wall_glass', gx: 4, gz: 6, rot: 1 },
-    { itemId: 'wall_glass', gx: 4, gz: 7, rot: 1 },
-    { itemId: 'wall_glass', gx: 4, gz: 8, rot: 1 },
-
-    // Research workstations
-    { itemId: 'desk_basic', gx: 6, gz: 6, rot: 0 },
-    { itemId: 'desk_basic', gx: 8, gz: 6, rot: 0 },
-    { itemId: 'desk_basic', gx: 6, gz: 8, rot: 0 },
-    { itemId: 'whiteboard', gx: 5, gz: 5, rot: 0 },
+    // Research workstations with clean walking aisles
+    { itemId: 'desk_basic', gx: 5, gz: 6, rot: 0 },
+    { itemId: 'desk_basic', gx: 7, gz: 6, rot: 0 },
+    { itemId: 'desk_basic', gx: 5, gz: 8, rot: 0 },
+    { itemId: 'whiteboard', gx: 6, gz: 4, rot: 0 },
+    { itemId: 'bookshelf_posters', gx: 4, gz: 5, rot: 1 },
 
     // Starter GPU corner + cooling + power
     { itemId: 'gpu_rig_2010', gx: 11, gz: 5, rot: 0 },
     { itemId: 'gpu_rig_2010', gx: 12, gz: 5, rot: 0 },
-    { itemId: 'server_rack', gx: 12, gz: 6, rot: 0 },
-    { itemId: 'ac_unit', gx: 10, gz: 5, rot: 0 },
+    { itemId: 'server_rack', gx: 12, gz: 7, rot: 0 },
+    { itemId: 'ac_unit', gx: 10, gz: 4, rot: 0 },
     { itemId: 'power_gen', gx: 14, gz: 5, rot: 0 },
 
     // Cozy lounge corner
-    { itemId: 'coffee_machine', gx: 5, gz: 10, rot: 0 },
-    { itemId: 'potted_plant', gx: 5, gz: 12, rot: 0 },
+    { itemId: 'coffee_machine', gx: 4, gz: 10, rot: 0 },
+    { itemId: 'potted_plant', gx: 4, gz: 12, rot: 0 },
     { itemId: 'potted_plant', gx: 12, gz: 11, rot: 0 },
-    { itemId: 'bookshelf_posters', gx: 5, gz: 7, rot: 1 },
   ];
 
   for (const p of starterProps) {
@@ -167,9 +159,9 @@ export function createInitialState(nowMs: number = Date.now()): GameState {
   const founder1 = generateCandidate(state, 'researcher');
   founder1.name = 'Ada Chen';
   founder1.skill = 4;
-  founder1.x = 6.5;
+  founder1.x = 5.5;
   founder1.z = 6.9;
-  founder1.targetX = 6.5;
+  founder1.targetX = 5.5;
   founder1.targetZ = 6.9;
   founder1.activity = 'working';
   founder1.activityTimer = 4.5;
@@ -177,7 +169,7 @@ export function createInitialState(nowMs: number = Date.now()): GameState {
   const founder2 = generateCandidate(state, 'ml_engineer');
   founder2.name = 'Kenji Sato';
   founder2.skill = 3;
-  founder2.x = 8.5;
+  founder2.x = 7.5;
   founder2.z = 7.4;
   founder2.targetX = 11.5;
   founder2.targetZ = 6.2;
@@ -203,13 +195,21 @@ export function migrateSave(raw: unknown): GameState | null {
     ...base,
     ...obj,
     version: SAVE_VERSION,
+    buildingTier: (obj.buildingTier ?? 0) as 0 | 1 | 2 | 3,
     automation: {
       ...base.automation,
       ...(obj.automation ?? {}),
+      autoFurnish: obj.automation?.autoFurnish ?? true,
     },
     settings: {
       ...base.settings,
       ...(obj.settings ?? {}),
+      pixelScale:
+        obj.buildingTier === undefined || (obj.settings?.pixelScale as number) === 4
+          ? 1
+          : (Math.min(3, Math.max(1, obj.settings?.pixelScale ?? 1)) as 1 | 2 | 3),
+      paletteQuantize:
+        obj.buildingTier === undefined ? false : Boolean(obj.settings?.paletteQuantize),
     },
   };
 
@@ -218,6 +218,14 @@ export function migrateSave(raw: unknown): GameState | null {
     migrated.floors.length !== migrated.gridWidth * migrated.gridHeight
   ) {
     return null;
+  }
+
+  // Clean out legacy starter perimeter wall_glass items at (x=4 or z=4) so the new
+  // dynamic architectural cutaway walls shine cleanly even on loaded old saves!
+  if (obj.buildingTier === undefined && Array.isArray(migrated.items)) {
+    migrated.items = migrated.items.filter(
+      (it) => !(it.itemId === 'wall_glass' && (it.gx === 4 || it.gz === 4)),
+    );
   }
 
   return migrated;

@@ -86,15 +86,15 @@ const COMPOSITE_FRAG = /* glsl */ `
       float dU = texture2D(tDepth, vUv + vec2(0.0,  uTexelSize.y)).r;
       float dD = texture2D(tDepth, vUv + vec2(0.0, -uTexelSize.y)).r;
 
-      // Orthographic depth is linear; draw crisp 1px dark ink outline on foreground silhouettes
+      // Orthographic depth is linear; draw crisp subtle dark ink outline on foreground silhouettes
       float depthEdge = 0.0;
       depthEdge += max(0.0, dL - dC);
       depthEdge += max(0.0, dR - dC);
       depthEdge += max(0.0, dU - dC);
       depthEdge += max(0.0, dD - dC);
-      float depthOutline = step(0.0042, depthEdge);
+      float depthOutline = step(0.0046, depthEdge);
 
-      // Normal crease outline (sharp interior bevels & architectural edges)
+      // Normal crease outline (clean low-poly bevels & architectural edges)
       vec3 nC = texture2D(tNormal, vUv).rgb * 2.0 - 1.0;
       vec3 nL = texture2D(tNormal, vUv + vec2(-uTexelSize.x, 0.0)).rgb * 2.0 - 1.0;
       vec3 nR = texture2D(tNormal, vUv + vec2( uTexelSize.x, 0.0)).rgb * 2.0 - 1.0;
@@ -106,9 +106,9 @@ const COMPOSITE_FRAG = /* glsl */ `
       nDiff = max(nDiff, 1.0 - dot(nC, nR));
       nDiff = max(nDiff, 1.0 - dot(nC, nU));
       nDiff = max(nDiff, 1.0 - dot(nC, nD));
-      float normalOutline = step(0.38, nDiff) * 0.52;
+      float normalOutline = step(0.48, nDiff) * 0.22;
 
-      outlineFactor = max(depthOutline * 0.88, normalOutline);
+      outlineFactor = max(depthOutline * 0.62, normalOutline);
     }
 
     if (uQuantizeEnabled > 0.5) {
@@ -160,13 +160,13 @@ export class PixelRenderPipeline {
   private readonly compositeQuad: THREE.Mesh;
   private readonly blitQuad: THREE.Mesh;
 
-  public pixelScale: 2 | 3 | 4 = 3;
-  public rtWidth = 480;
-  public rtHeight = 270;
-  public paddedWidth = 482;
-  public paddedHeight = 272;
+  public pixelScale: 1 | 2 | 3 = 1;
+  public rtWidth = 960;
+  public rtHeight = 540;
+  public paddedWidth = 962;
+  public paddedHeight = 542;
 
-  constructor(renderer: THREE.WebGLRenderer, width: number, height: number, pixelScale: 2 | 3 | 4 = 3) {
+  constructor(renderer: THREE.WebGLRenderer, width: number, height: number, pixelScale: 1 | 2 | 3 = 1) {
     this.renderer = renderer;
     this.pixelScale = pixelScale;
 
@@ -178,9 +178,9 @@ export class PixelRenderPipeline {
         tDepth: { value: null },
         tNormal: { value: null },
         tHighlight: { value: null },
-        uTexelSize: { value: new THREE.Vector2(1 / 482, 1 / 272) },
+        uTexelSize: { value: new THREE.Vector2(1 / 962, 1 / 542) },
         uOutlinesEnabled: { value: 1 },
-        uQuantizeEnabled: { value: 1 },
+        uQuantizeEnabled: { value: 0 },
         uHasHighlight: { value: 0 },
         uOutlineColor: { value: new THREE.Color('#231b1c') },
         uHighlightColor: { value: new THREE.Color('#f8f0df') },
@@ -211,10 +211,15 @@ export class PixelRenderPipeline {
     this.resize(width, height, pixelScale);
   }
 
-  public resize(width: number, height: number, pixelScale: 2 | 3 | 4 = this.pixelScale): void {
+  public resize(width: number, height: number, pixelScale: 1 | 2 | 3 = this.pixelScale): void {
     this.pixelScale = pixelScale;
-    this.rtWidth = Math.max(200, Math.floor(width / pixelScale));
-    this.rtHeight = Math.max(120, Math.floor(height / pixelScale));
+    const rawW = Math.floor(width / pixelScale);
+    const rawH = Math.floor(height / pixelScale);
+    // Keep crisp native 1:1 low-poly clarity while capping extreme 4K targets for smooth 60fps
+    const maxDim = pixelScale === 1 ? 1600 : 1024;
+    const clampScale = Math.max(rawW, rawH) > maxDim ? maxDim / Math.max(rawW, rawH) : 1;
+    this.rtWidth = Math.max(240, Math.floor(rawW * clampScale));
+    this.rtHeight = Math.max(140, Math.floor(rawH * clampScale));
     // 1-texel border margin on every side so sub-pixel camera snapping never smears edges
     this.paddedWidth = this.rtWidth + 2;
     this.paddedHeight = this.rtHeight + 2;

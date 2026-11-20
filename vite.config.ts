@@ -12,7 +12,7 @@ export default defineConfig(() => {
       react(),
       tailwindcss(),
       VitePWA({
-        registerType: 'autoUpdate',
+        registerType: 'prompt',
         includeAssets: [
           'icon.svg',
           'apple-touch-icon.png',
@@ -25,12 +25,12 @@ export default defineConfig(() => {
           name: 'Project-Labs — AI Lab Tycoon',
           short_name: 'Project-Labs',
           description:
-            'Build and scale a frontier AI lab from a 2010 garage startup in a 3D isometric pixel-art idle management tycoon.',
+            'Build and scale a frontier AI lab from a 2010 garage startup to the 2100 Singularity in a 3D isometric low-poly tycoon.',
           theme_color: '#1f2233',
           background_color: '#14121d',
           display: 'fullscreen',
           display_override: ['fullscreen', 'standalone'],
-          orientation: 'any',
+          orientation: 'landscape',
           start_url: './',
           scope: './',
           icons: [
